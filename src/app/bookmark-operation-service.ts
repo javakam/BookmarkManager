@@ -536,36 +536,39 @@ export function createBookmarkOperationService({
         return { kind: plan.kind, results };
       }
 
-      const results: BookmarkOperationResult[] = [];
-      for (const entry of plan.entries) {
-        const parentId =
-          byId.has(entry.originalParentId)
-            ? entry.originalParentId
-            : plan.fallbackParentId;
-        if (!parentId || !byId.get(parentId)?.isFolder) {
-          results.push({
-            id: entry.nodeId,
-            status: 'conflict',
-            message: '原文件夹不存在，请选择恢复位置',
-          });
-          continue;
+      if (plan.kind === 'restore') {
+        const results: BookmarkOperationResult[] = [];
+        for (const entry of plan.entries) {
+          const parentId =
+            byId.has(entry.originalParentId)
+              ? entry.originalParentId
+              : plan.fallbackParentId;
+          if (!parentId || !byId.get(parentId)?.isFolder) {
+            results.push({
+              id: entry.nodeId,
+              status: 'conflict',
+              message: '原文件夹不存在，请选择恢复位置',
+            });
+            continue;
+          }
+          try {
+            await repository.move(entry.nodeId, {
+              parentId,
+              index: resolveRestoreIndex(records, entry, parentId),
+            });
+            await storage.removeRecoveryEntry(entry.nodeId);
+            results.push({
+              id: entry.nodeId,
+              status: 'success',
+              message: '已恢复',
+            });
+          } catch (error) {
+            results.push(createFailure(entry.nodeId, error));
+          }
         }
-        try {
-          await repository.move(entry.nodeId, {
-            parentId,
-            index: resolveRestoreIndex(records, entry, parentId),
-          });
-          await storage.removeRecoveryEntry(entry.nodeId);
-          results.push({
-            id: entry.nodeId,
-            status: 'success',
-            message: '已恢复',
-          });
-        } catch (error) {
-          results.push(createFailure(entry.nodeId, error));
-        }
+        return { kind: plan.kind, results };
       }
-      return { kind: plan.kind, results };
+      return { kind: plan.kind, results: [] };
     },
   };
 }

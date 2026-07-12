@@ -140,7 +140,7 @@ describe('batch bookmark operations', () => {
     const { repository } = await renderReady();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
-    expect(screen.getByRole('toolbar', { name: '批量操作' })).toBeTruthy();
+    expect(await screen.findByRole('toolbar', { name: '批量操作' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '移动到……' }));
     const dialog = await screen.findByRole('dialog', { name: '移动到' });

@@ -66,7 +66,8 @@ export interface ManagerAppProps {
 }
 
 type EditorState =
-  | { readonly mode: 'create-bookmark' | 'create-folder'; readonly parentId: string }
+  | { readonly mode: 'create-bookmark'; readonly parentId: string }
+  | { readonly mode: 'create-folder'; readonly parentId: string }
   | { readonly mode: 'edit'; readonly record: BookmarkRecord };
 
 function createDefaultSettingsRepository(): ManagerSettingsRepository {
@@ -299,22 +300,24 @@ export function ManagerApp({
         return;
       }
       try {
-        const plan =
-          editorState.mode === 'create-bookmark'
-            ? operationService.planCreateBookmark(data.records, {
-                parentId: editorState.parentId,
-                title: input.title,
-                url: input.url ?? '',
-              })
-            : editorState.mode === 'create-folder'
-              ? operationService.planCreateFolder(data.records, {
-                  parentId: editorState.parentId,
-                  title: input.title,
-                })
-              : operationService.planUpdate(data.records, editorState.record.id, {
-                  title: input.title,
-                  ...(editorState.record.isFolder ? {} : { url: input.url ?? '' }),
-                });
+        let plan: BookmarkOperationPlan;
+        if (editorState.mode === 'create-bookmark') {
+          plan = operationService.planCreateBookmark(data.records, {
+            parentId: editorState.parentId,
+            title: input.title,
+            url: input.url ?? '',
+          });
+        } else if (editorState.mode === 'create-folder') {
+          plan = operationService.planCreateFolder(data.records, {
+            parentId: editorState.parentId,
+            title: input.title,
+          });
+        } else {
+          plan = operationService.planUpdate(data.records, editorState.record.id, {
+            title: input.title,
+            ...(editorState.record.isFolder ? {} : { url: input.url ?? '' }),
+          });
+        }
         setEditorState(undefined);
         setConfirmPlan(plan);
         setOperationError(undefined);
