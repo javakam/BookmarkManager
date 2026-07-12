@@ -9,6 +9,8 @@ export interface BookmarkDisplayInfo {
 export interface BookmarkViewModel {
   readonly recordById: ReadonlyMap<string, BookmarkRecord>;
   readonly childrenByParentId: ReadonlyMap<string, readonly BookmarkRecord[]>;
+  readonly directBookmarkCountByFolderId: ReadonlyMap<string, number>;
+  readonly totalBookmarkCountByFolderId: ReadonlyMap<string, number>;
   readonly syntheticRootIds: ReadonlySet<string>;
   readonly topLevelFolders: readonly BookmarkRecord[];
   readonly searchableRecords: readonly BookmarkRecord[];
@@ -81,6 +83,63 @@ export function createBookmarkViewModel(
   const childrenByParentId = new Map<string, readonly BookmarkRecord[]>();
   for (const [parentId, children] of mutableChildren) {
     childrenByParentId.set(parentId, [...children].sort(compareBrowserOrder));
+  }
+
+  const directBookmarkCountByFolderId = new Map<string, number>();
+  const totalBookmarkCountByFolderId = new Map<string, number>();
+  const remainingChildFolderCountById = new Map<string, number>();
+
+  for (const record of records) {
+    if (record.isFolder) {
+      directBookmarkCountByFolderId.set(record.id, 0);
+      totalBookmarkCountByFolderId.set(record.id, 0);
+      remainingChildFolderCountById.set(record.id, 0);
+    }
+  }
+
+  for (const record of records) {
+    if (record.parentId === undefined) {
+      continue;
+    }
+    if (record.isFolder) {
+      if (remainingChildFolderCountById.has(record.parentId)) {
+        remainingChildFolderCountById.set(
+          record.parentId,
+          (remainingChildFolderCountById.get(record.parentId) ?? 0) + 1,
+        );
+      }
+    } else if (directBookmarkCountByFolderId.has(record.parentId)) {
+      directBookmarkCountByFolderId.set(
+        record.parentId,
+        (directBookmarkCountByFolderId.get(record.parentId) ?? 0) + 1,
+      );
+    }
+  }
+
+  const pendingFolders: string[] = [];
+  for (const [folderId, directCount] of directBookmarkCountByFolderId) {
+    totalBookmarkCountByFolderId.set(folderId, directCount);
+    if (remainingChildFolderCountById.get(folderId) === 0) {
+      pendingFolders.push(folderId);
+    }
+  }
+
+  for (let cursor = 0; cursor < pendingFolders.length; cursor += 1) {
+    const folderId = pendingFolders[cursor];
+    const parentId = recordById.get(folderId)?.parentId;
+    if (parentId === undefined || !totalBookmarkCountByFolderId.has(parentId)) {
+      continue;
+    }
+    totalBookmarkCountByFolderId.set(
+      parentId,
+      (totalBookmarkCountByFolderId.get(parentId) ?? 0) +
+        (totalBookmarkCountByFolderId.get(folderId) ?? 0),
+    );
+    const remaining = (remainingChildFolderCountById.get(parentId) ?? 0) - 1;
+    remainingChildFolderCountById.set(parentId, remaining);
+    if (remaining === 0) {
+      pendingFolders.push(parentId);
+    }
   }
 
   const roots = records
@@ -156,6 +215,8 @@ export function createBookmarkViewModel(
   return {
     recordById,
     childrenByParentId,
+    directBookmarkCountByFolderId,
+    totalBookmarkCountByFolderId,
     syntheticRootIds,
     topLevelFolders,
     searchableRecords: records.filter(

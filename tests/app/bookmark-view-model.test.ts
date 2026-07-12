@@ -110,6 +110,39 @@ describe('createBookmarkViewModel', () => {
     ).toEqual(['nested', 'leaf']);
   });
 
+  it('precomputes direct and descendant bookmark counts without counting folders', () => {
+    const bookmark = (
+      id: string,
+      parentId: string,
+      index: number,
+      title: string,
+    ): BookmarkRecord => ({
+      ...folder(id, parentId, index, title),
+      isFolder: false,
+      url: `https://${id}.example.test`,
+    });
+    const records = [
+      folder('root', undefined, 0, ''),
+      folder('parent', 'root', 0, 'Parent'),
+      bookmark('parent-a', 'parent', 0, 'Parent A'),
+      bookmark('parent-empty-title', 'parent', 1, ''),
+      folder('child', 'parent', 2, 'Child'),
+      bookmark('child-a', 'child', 0, 'Child A'),
+      bookmark('child-b', 'child', 1, 'Child B'),
+      bookmark('child-empty-title', 'child', 2, ''),
+      folder('empty-folder', 'parent', 3, 'Empty folder'),
+    ];
+
+    const model = createBookmarkViewModel(records);
+
+    expect(model.directBookmarkCountByFolderId.get('parent')).toBe(2);
+    expect(model.totalBookmarkCountByFolderId.get('parent')).toBe(5);
+    expect(model.directBookmarkCountByFolderId.get('child')).toBe(3);
+    expect(model.totalBookmarkCountByFolderId.get('child')).toBe(3);
+    expect(model.directBookmarkCountByFolderId.get('empty-folder')).toBe(0);
+    expect(model.totalBookmarkCountByFolderId.get('empty-folder')).toBe(0);
+  });
+
   it('collects a wide folder subtree without quadratic head removals', () => {
     const width = 100_000;
     const records = [

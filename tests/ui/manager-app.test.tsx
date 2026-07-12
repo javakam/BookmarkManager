@@ -12,6 +12,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SearchResult } from '../../src/app/bookmark-index';
+import type { OrganizeAnalyzers } from '../../src/app/use-organize-analysis';
 import { ManagerApp } from '../../src/ui/manager/ManagerApp';
 import { SearchResults } from '../../src/ui/manager/SearchResults';
 import type { BrowserBookmarkNode } from '../../src/domain/bookmarks';
@@ -19,6 +20,11 @@ import type {
   BookmarkRepository,
   BookmarkRepositoryChange,
 } from '../../src/platform/bookmark-repository';
+import {
+  createBrowserManagerSettingsRepository,
+  type ManagerSettingsRepository,
+  type ManagerSettingsStorageArea,
+} from '../../src/platform/manager-settings-repository';
 
 afterEach(cleanup);
 
@@ -252,12 +258,31 @@ function repositoryStub(
   };
 }
 
+class SettingsStorageAreaStub implements ManagerSettingsStorageArea {
+  private readonly values: Record<string, unknown> = {};
+
+  async get(key: string): Promise<Record<string, unknown>> {
+    return Object.hasOwn(this.values, key) ? { [key]: this.values[key] } : {};
+  }
+
+  async set(values: Record<string, unknown>): Promise<void> {
+    Object.assign(this.values, values);
+  }
+}
+
 async function renderReady(
   tree = managerTree(),
   openUrl = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined),
+  settingsRepository?: ManagerSettingsRepository,
 ) {
   const repository = repositoryStub(vi.fn().mockResolvedValue(tree));
-  render(<ManagerApp repository={repository} openUrl={openUrl} />);
+  render(
+    <ManagerApp
+      openUrl={openUrl}
+      repository={repository}
+      settingsRepository={settingsRepository}
+    />,
+  );
   await screen.findByRole('heading', { name: '书签栏' });
   return { repository, openUrl };
 }
@@ -301,6 +326,19 @@ describe('ManagerApp browse shell', () => {
     expect(within(sidebar).queryByText('Zeta')).toBeNull();
   });
 
+  it('renders each folder count separately from its accessible name', async () => {
+    await renderReady();
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+    const folderName = within(sidebar).getByRole('button', { name: '书签栏' });
+    const row = folderName.closest('.folder-tree__row') as HTMLElement;
+    const count = within(row).getByLabelText('直属 2，合计 3');
+
+    expect(folderName.textContent).toBe('书签栏');
+    expect(folderName.contains(count)).toBe(false);
+    expect(count.textContent).toBe('2 / 3');
+    expect(count.getAttribute('title')).toBe('直属 2，合计 3');
+  });
+
   it('pages wide folders, resets on navigation, and lazy-loads favicons', async () => {
     await renderReady(pagedBookmarkTree());
     const currentList = screen.getByRole('list', { name: '当前文件夹内容' });
@@ -333,7 +371,7 @@ describe('ManagerApp browse shell', () => {
     expect(screen.getByRole('searchbox', { name: '搜索书签' })).toBeTruthy();
   });
 
-  it('gives both sidebar view buttons explicit accessible labels', async () => {
+  it('gives all three sidebar view buttons explicit accessible labels', async () => {
     await renderReady();
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
 
@@ -343,6 +381,9 @@ describe('ManagerApp browse shell', () => {
     expect(
       within(sidebar).getByRole('button', { name: '整理' }).getAttribute('aria-label'),
     ).toBe('整理');
+    expect(
+      within(sidebar).getByRole('button', { name: '设置' }).getAttribute('aria-label'),
+    ).toBe('设置');
   });
 
   it('uses ordinary nested lists instead of an incomplete ARIA tree widget', async () => {
@@ -416,6 +457,68 @@ describe('ManagerApp browse shell', () => {
         '受管子目录 只读',
       ),
     ).toBeTruthy();
+  });
+});
+
+describe('ManagerApp settings', () => {
+  it('loads a hidden-count preference and persists a toggle through the storage adapter', async () => {
+    const storage = new SettingsStorageAreaStub();
+    const settingsRepository = createBrowserManagerSettingsRepository(storage);
+    await settingsRepository.save({ showFolderCounts: false });
+
+    await renderReady(managerTree(), undefined, settingsRepository);
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+    expect(sidebar.querySelector('.folder-tree__count')).toBeNull();
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: '设置' }));
+    const toggle = await screen.findByRole('checkbox', {
+      name: '显示目录书签数量',
+    });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(toggle);
+
+    await waitFor(async () => {
+      await expect(settingsRepository.load()).resolves.toEqual({
+        showFolderCounts: true,
+      });
+    });
+    fireEvent.click(within(sidebar).getByRole('button', { name: '浏览' }));
+    expect(
+      await within(sidebar).findByLabelText('直属 2，合计 3'),
+    ).toBeTruthy();
+  });
+
+  it('shows native source, automatic state, last refresh, and a shared manual refresh without analysis', async () => {
+    const getTree = vi
+      .fn<BookmarkRepository['getTree']>()
+      .mockResolvedValue(managerTree());
+    const repository = repositoryStub(getTree);
+    const duplicateAnalyzer = vi.fn<OrganizeAnalyzers['duplicateAnalyzer']>();
+    const similarityAnalyzer = vi.fn<OrganizeAnalyzers['similarityAnalyzer']>();
+    render(
+      <ManagerApp
+        openUrl={vi.fn()}
+        organizeAnalyzers={{ duplicateAnalyzer, similarityAnalyzer }}
+        repository={repository}
+      />,
+    );
+    await screen.findByRole('heading', { name: '书签栏' });
+
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: '设置' }));
+    const settings = await screen.findByRole('region', { name: '设置' });
+    expect(within(settings).getByText('当前浏览器原生书签')).toBeTruthy();
+    expect(within(settings).getByText('自动更新')).toBeTruthy();
+    expect(within(settings).getByText('已开启')).toBeTruthy();
+    expect(within(settings).queryByText('尚未更新')).toBeNull();
+    expect(settings.querySelector('time[datetime]')).toBeTruthy();
+
+    fireEvent.click(
+      within(settings).getByRole('button', { name: '立即刷新书签' }),
+    );
+    await waitFor(() => expect(getTree).toHaveBeenCalledTimes(2));
+    expect(duplicateAnalyzer).not.toHaveBeenCalled();
+    expect(similarityAnalyzer).not.toHaveBeenCalled();
   });
 });
 

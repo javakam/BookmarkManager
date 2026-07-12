@@ -16,27 +16,55 @@ import {
 import { BookmarkIndex } from '../../app/bookmark-index';
 import { createBookmarkViewModel, getBookmarkDisplayInfo } from '../../app/bookmark-view-model';
 import { useBookmarks } from '../../app/use-bookmarks';
+import { useManagerSettings } from '../../app/use-manager-settings';
 import {
   useOrganizeAnalysis,
   type OrganizeAnalyzers,
 } from '../../app/use-organize-analysis';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import type { BookmarkRepository } from '../../platform/bookmark-repository';
+import {
+  DEFAULT_MANAGER_SETTINGS,
+  type ManagerSettingsRepository,
+} from '../../platform/manager-settings-repository';
 import { BrowseView } from './BrowseView';
 import { FolderTree, type ManagerView } from './FolderTree';
 import { OrganizeView } from './OrganizeView';
 import { SearchResults } from './SearchResults';
+import { SettingsView } from './SettingsView';
 
 type SearchScopeMode = 'all' | 'folder';
 
 export interface ManagerAppProps {
   readonly repository: BookmarkRepository;
+  readonly settingsRepository?: ManagerSettingsRepository;
   readonly openUrl: (url: string) => Promise<void>;
   readonly organizeAnalyzers?: OrganizeAnalyzers;
 }
 
-export function ManagerApp({ repository, openUrl, organizeAnalyzers }: ManagerAppProps) {
+function createDefaultSettingsRepository(): ManagerSettingsRepository {
+  let settings = { ...DEFAULT_MANAGER_SETTINGS };
+  return {
+    async load() {
+      return settings;
+    },
+    async save(nextSettings) {
+      settings = { showFolderCounts: nextSettings.showFolderCounts };
+    },
+  };
+}
+
+export function ManagerApp({
+  repository,
+  settingsRepository,
+  openUrl,
+  organizeAnalyzers,
+}: ManagerAppProps) {
   const data = useBookmarks(repository);
+  const [defaultSettingsRepository] = useState(createDefaultSettingsRepository);
+  const managerSettings = useManagerSettings(
+    settingsRepository ?? defaultSettingsRepository,
+  );
   const model = useMemo(
     () => createBookmarkViewModel(data.records),
     [data.records],
@@ -205,6 +233,20 @@ export function ManagerApp({ repository, openUrl, organizeAnalyzers }: ManagerAp
         </button>
       </div>
     );
+  } else if (view === 'settings') {
+    content = (
+      <SettingsView
+        isRefreshing={data.status === 'loading'}
+        lastUpdatedAt={data.lastUpdatedAt}
+        onRefresh={() => void data.refresh()}
+        onShowFolderCountsChange={(showFolderCounts) =>
+          void managerSettings.update({ showFolderCounts })
+        }
+        settings={managerSettings.settings}
+        settingsError={managerSettings.error}
+        settingsStatus={managerSettings.status}
+      />
+    );
   } else if (view === 'organize') {
     if (organizeAnalysis.status === 'ready') {
       content = (
@@ -347,6 +389,7 @@ export function ManagerApp({ repository, openUrl, organizeAnalyzers }: ManagerAp
             });
           }}
           onViewChange={setView}
+          showFolderCounts={managerSettings.settings.showFolderCounts}
           view={view}
         />
         <main className="app-main">

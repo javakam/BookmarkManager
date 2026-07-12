@@ -5,18 +5,20 @@ import {
   Library,
   ListFilter,
   Lock,
+  Settings,
 } from 'lucide-react';
 
 import type { BookmarkViewModel } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 
-export type ManagerView = 'browse' | 'organize';
+export type ManagerView = 'browse' | 'organize' | 'settings';
 
 interface FolderTreeProps {
   readonly model: BookmarkViewModel;
   readonly view: ManagerView;
   readonly activeFolderId?: string;
   readonly expandedFolderIds: ReadonlySet<string>;
+  readonly showFolderCounts: boolean;
   readonly onSelect: (folderId: string) => void;
   readonly onToggle: (folderId: string) => void;
   readonly onViewChange: (view: ManagerView) => void;
@@ -24,7 +26,12 @@ interface FolderTreeProps {
 
 type FolderTreeNodeProps = Pick<
   FolderTreeProps,
-  'model' | 'activeFolderId' | 'expandedFolderIds' | 'onSelect' | 'onToggle'
+  | 'model'
+  | 'activeFolderId'
+  | 'expandedFolderIds'
+  | 'showFolderCounts'
+  | 'onSelect'
+  | 'onToggle'
 > & {
   readonly folder: BookmarkRecord;
   readonly depth: number;
@@ -36,6 +43,7 @@ function FolderTreeNode({
   model,
   activeFolderId,
   expandedFolderIds,
+  showFolderCounts,
   onSelect,
   onToggle,
 }: FolderTreeNodeProps) {
@@ -45,6 +53,11 @@ function FolderTreeNode({
   const isExpanded = expandedFolderIds.has(folder.id);
   const isActive = activeFolderId === folder.id;
   const label = folder.title || '未命名文件夹';
+  const directBookmarkCount =
+    model.directBookmarkCountByFolderId.get(folder.id) ?? 0;
+  const totalBookmarkCount =
+    model.totalBookmarkCountByFolderId.get(folder.id) ?? 0;
+  const countLabel = `直属 ${directBookmarkCount}，合计 ${totalBookmarkCount}`;
 
   return (
     <li>
@@ -80,6 +93,23 @@ function FolderTreeNode({
         >
           {label}
         </button>
+        {showFolderCounts && (
+          <span
+            aria-label={countLabel}
+            className="folder-tree__count"
+            title={countLabel}
+          >
+            <span className="folder-tree__count-direct">
+              {directBookmarkCount}
+            </span>
+            <span aria-hidden="true" className="folder-tree__count-separator">
+              {' / '}
+            </span>
+            <span className="folder-tree__count-total">
+              {totalBookmarkCount}
+            </span>
+          </span>
+        )}
         {folder.isUnmodifiable && (
           <span className="folder-tree__readonly" title={`${label} 只读`}>
             <Lock
@@ -103,6 +133,7 @@ function FolderTreeNode({
               model={model}
               onSelect={onSelect}
               onToggle={onToggle}
+              showFolderCounts={showFolderCounts}
             />
           ))}
         </ul>
@@ -134,6 +165,16 @@ export function FolderTree(props: FolderTreeProps) {
         >
           <ListFilter aria-hidden="true" size={18} />
           <span>整理</span>
+        </button>
+        <button
+          aria-current={props.view === 'settings' ? 'page' : undefined}
+          aria-label="设置"
+          className="sidebar-primary"
+          onClick={() => props.onViewChange('settings')}
+          type="button"
+        >
+          <Settings aria-hidden="true" size={18} />
+          <span>设置</span>
         </button>
         {props.view === 'browse' && (
           <>
