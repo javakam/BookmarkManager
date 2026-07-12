@@ -30,7 +30,10 @@ import {
   calculateFolderMove,
   type FolderDropPosition,
 } from '../../domain/folder-reorder';
-import type { BookmarkOperationExecution } from '../../domain/bookmark-operations';
+import {
+  QUARANTINE_FOLDER_TITLE,
+  type BookmarkOperationExecution,
+} from '../../domain/bookmark-operations';
 import type { BookmarkRepository } from '../../platform/bookmark-repository';
 import {
   createMemoryBookmarkOperationStorage,
@@ -42,6 +45,7 @@ import {
 } from '../../platform/manager-settings-repository';
 import { BookmarkEditorDialog } from './BookmarkEditorDialog';
 import { BrowseView } from './BrowseView';
+import { BatchActionBar } from './BatchActionBar';
 import { ConfirmOperationDialog } from './ConfirmOperationDialog';
 import { FolderTree, type ManagerView } from './FolderTree';
 import { MoveBookmarkDialog } from './MoveBookmarkDialog';
@@ -49,6 +53,7 @@ import { OperationResultDialog } from './OperationResultDialog';
 import { OrganizeView } from './OrganizeView';
 import { SearchResults } from './SearchResults';
 import { SettingsView } from './SettingsView';
+import type { BookmarkRecoveryEntry } from '../../platform/bookmark-operation-storage';
 
 type SearchScopeMode = 'all' | 'folder';
 
@@ -89,13 +94,14 @@ export function ManagerApp({
   const managerSettings = useManagerSettings(
     settingsRepository ?? defaultSettingsRepository,
   );
+  const resolvedOperationStorage = operationStorage ?? defaultOperationStorage;
   const operationService = useMemo(
     () =>
       createBookmarkOperationService({
         repository,
-        storage: operationStorage ?? defaultOperationStorage,
+        storage: resolvedOperationStorage,
       }),
-    [defaultOperationStorage, operationStorage, repository],
+    [repository, resolvedOperationStorage],
   );
   const model = useMemo(
     () => createBookmarkViewModel(data.records),
@@ -117,10 +123,15 @@ export function ManagerApp({
   const [operationError, setOperationError] = useState<string>();
   const [editorState, setEditorState] = useState<EditorState>();
   const [moveRecord, setMoveRecord] = useState<BookmarkRecord>();
+  const [moveSourceIds, setMoveSourceIds] = useState<readonly string[]>();
   const [confirmPlan, setConfirmPlan] = useState<BookmarkOperationPlan>();
   const [operationResult, setOperationResult] =
     useState<BookmarkOperationExecution>();
   const [isExecutingOperation, setIsExecutingOperation] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [recoveryEntries, setRecoveryEntries] = useState<
+    readonly BookmarkRecoveryEntry[]
+  >([]);
   const [locationStatus, setLocationStatus] = useState<string>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const organizeAnalysis = useOrganizeAnalysis(
@@ -160,6 +171,31 @@ export function ManagerApp({
       setLocationStatus(undefined);
     }
   }, [highlightedId, model]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [resolvedFolderId]);
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const next = new Set(
+        [...current].filter((id) => model.recordById.has(id)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [model]);
+
+  useEffect(() => {
+    let isActive = true;
+    void resolvedOperationStorage.loadRecoveryEntries().then((entries) => {
+      if (isActive) {
+        setRecoveryEntries(entries);
+      }
+    });
+    return () => {
+      isActive = false;
+    };
+  }, [data.revision, resolvedOperationStorage]);
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -252,6 +288,7 @@ export function ManagerApp({
   const clearOperationUi = useCallback(() => {
     setEditorState(undefined);
     setMoveRecord(undefined);
+    setMoveSourceIds(undefined);
     setConfirmPlan(undefined);
     setOperationError(undefined);
   }, []);
@@ -290,13 +327,15 @@ export function ManagerApp({
 
   const previewMove = useCallback(
     (targetFolderId: string) => {
-      if (!moveRecord) {
+      const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
+      if (!ids || ids.length === 0) {
         return;
       }
       try {
         setMoveRecord(undefined);
+        setMoveSourceIds(undefined);
         setConfirmPlan(
-          operationService.planMove(data.records, [moveRecord.id], {
+          operationService.planMove(data.records, ids, {
             parentId: targetFolderId,
           }),
         );
@@ -305,7 +344,7 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.records, moveRecord, operationService],
+    [data.records, moveRecord, moveSourceIds, operationService],
   );
 
   const previewQuarantine = useCallback(
@@ -358,21 +397,41 @@ export function ManagerApp({
       const execution = await operationService.execute(confirmPlan);
       setConfirmPlan(undefined);
       setOperationResult(execution);
+      const succeededIds = new Set(
+        execution.results
+          .filter((result) => result.status === 'success')
+          .map((result) => result.id),
+      );
+      setSelectedIds((current) => {
+        const next = new Set(
+          [...current].filter((id) => !succeededIds.has(id)),
+        );
+        return next;
+      });
+      setRecoveryEntries(await resolvedOperationStorage.loadRecoveryEntries());
       await data.refresh();
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsExecutingOperation(false);
     }
-  }, [confirmPlan, data, operationService]);
+  }, [confirmPlan, data, operationService, resolvedOperationStorage]);
 
   const writableMoveTargets = useMemo(() => {
-    if (!moveRecord) {
+    const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
+    if (!ids || ids.length === 0) {
       return [];
     }
-    const blockedIds = moveRecord.isFolder
-      ? new Set([moveRecord.id, ...model.getDescendantIds(moveRecord.id)])
-      : new Set<string>();
+    const blockedIds = new Set<string>();
+    for (const id of ids) {
+      const source = model.recordById.get(id);
+      if (source?.isFolder) {
+        blockedIds.add(source.id);
+        for (const descendantId of model.getDescendantIds(source.id)) {
+          blockedIds.add(descendantId);
+        }
+      }
+    }
     return model.searchableRecords.filter(
       (record) =>
         record.isFolder &&
@@ -380,7 +439,60 @@ export function ManagerApp({
         !record.isUnmodifiable &&
         !blockedIds.has(record.id),
     );
-  }, [model, moveRecord]);
+  }, [model, moveRecord, moveSourceIds]);
+
+  const selectedRecords = useMemo(
+    () =>
+      [...selectedIds].flatMap((id) => {
+        const record = model.recordById.get(id);
+        return record ? [record] : [];
+      }),
+    [model, selectedIds],
+  );
+  const selectedRecoveryEntries = useMemo(() => {
+    const selected = selectedIds;
+    return recoveryEntries.filter((entry) => selected.has(entry.nodeId));
+  }, [recoveryEntries, selectedIds]);
+  const currentFolder = resolvedFolderId
+    ? model.recordById.get(resolvedFolderId)
+    : undefined;
+  const isQuarantineFolder =
+    currentFolder?.title === QUARANTINE_FOLDER_TITLE;
+
+  const toggleSelection = useCallback(
+    (record: BookmarkRecord, selected: boolean) => {
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        if (selected) {
+          next.add(record.id);
+        } else {
+          next.delete(record.id);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const previewBatchQuarantine = useCallback(() => {
+    try {
+      setConfirmPlan(
+        operationService.planQuarantine(data.records, [...selectedIds]),
+      );
+      setOperationError(undefined);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    }
+  }, [data.records, operationService, selectedIds]);
+
+  const previewBatchRestore = useCallback(() => {
+    try {
+      setConfirmPlan(operationService.planRestore(selectedRecoveryEntries));
+      setOperationError(undefined);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    }
+  }, [operationService, selectedRecoveryEntries]);
 
   const bookmarkCount = model.searchableRecords.filter(
     (record) => !record.isFolder,
@@ -474,6 +586,9 @@ export function ManagerApp({
         onMove={setMoveRecord}
         onOpen={(record) => void handleOpen(record)}
         onQuarantine={previewQuarantine}
+        onSelectionChange={toggleSelection}
+        selectedIds={selectedIds}
+        isQuarantineFolder={isQuarantineFolder}
       />
     );
   }
@@ -584,6 +699,23 @@ export function ManagerApp({
           {openError && <div className="inline-error" role="alert">{openError}</div>}
           {operationError && <div className="inline-error" role="alert">{operationError}</div>}
           {locationStatus && <div className="location-status" role="status">{locationStatus}</div>}
+          {view === 'browse' && selectedIds.size > 0 && !normalizedQuery && (
+            <BatchActionBar
+              canQuarantine={
+                !isQuarantineFolder &&
+                selectedRecords.length > 0 &&
+                selectedRecords.every((record) => !record.isFolder)
+              }
+              canRestore={
+                isQuarantineFolder && selectedRecoveryEntries.length > 0
+              }
+              onCancelSelection={() => setSelectedIds(new Set())}
+              onMove={() => setMoveSourceIds([...selectedIds])}
+              onQuarantine={previewBatchQuarantine}
+              onRestore={previewBatchRestore}
+              selectedCount={selectedIds.size}
+            />
+          )}
           {content}
         </main>
       </div>
@@ -595,7 +727,7 @@ export function ManagerApp({
           record={editorState.mode === 'edit' ? editorState.record : undefined}
         />
       )}
-      {moveRecord && (
+      {(moveRecord || moveSourceIds) && (
         <MoveBookmarkDialog
           folders={writableMoveTargets}
           model={model}

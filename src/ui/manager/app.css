@@ -571,7 +571,7 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 
 .bookmark-row {
   grid-template-columns:
-    28px minmax(180px, 1.2fr) minmax(120px, 0.65fr)
+    28px 28px minmax(180px, 1.2fr) minmax(120px, 0.65fr)
     minmax(180px, 1fr) 148px;
 }
 
@@ -593,12 +593,19 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   padding-left: 17px;
 }
 
+.bookmark-row__select,
 .bookmark-row__icon {
   align-items: center;
   display: inline-flex;
   height: 24px;
   justify-content: flex-start;
   width: 24px;
+}
+
+.bookmark-row__select input {
+  height: 16px;
+  margin: 0;
+  width: 16px;
 }
 
 .item-favicon,
@@ -686,6 +693,24 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   gap: 4px;
   justify-content: flex-end;
   min-width: 0;
+}
+
+.batch-action-bar {
+  align-items: center;
+  background: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-divider);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 46px;
+  padding: 7px 20px;
+}
+
+.batch-action-bar span {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  margin-right: auto;
 }
 
 .dialog-backdrop {
@@ -1076,7 +1101,7 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 
 @media (max-width: 1100px) {
   .bookmark-row {
-    grid-template-columns: 28px minmax(180px, 1fr) minmax(120px, 200px) 148px;
+    grid-template-columns: 28px 28px minmax(180px, 1fr) minmax(120px, 200px) 148px;
   }
 
   .search-result-row {
@@ -1238,7 +1263,7 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   }
 
   .bookmark-row {
-    grid-template-columns: 28px minmax(120px, 1fr) 112px;
+    grid-template-columns: 28px 28px minmax(120px, 1fr) 112px;
   }
 
   .search-result-row {

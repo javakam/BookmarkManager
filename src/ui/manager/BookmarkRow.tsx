@@ -18,11 +18,14 @@ import type { BookmarkRecord } from '../../domain/bookmarks';
 interface BookmarkRowProps {
   readonly record: BookmarkRecord;
   readonly highlighted?: boolean;
+  readonly selectable?: boolean;
+  readonly selected?: boolean;
   readonly onEnterFolder: (folderId: string) => void;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
   readonly onQuarantine?: (record: BookmarkRecord) => void;
+  readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
 }
 
 export function createFaviconUrl(url: string): string {
@@ -80,11 +83,14 @@ export function Favicon({
 export function BookmarkRow({
   record,
   highlighted = false,
+  selectable = false,
+  selected = false,
   onEnterFolder,
   onEdit,
   onMove,
   onOpen,
   onQuarantine,
+  onSelectionChange,
 }: BookmarkRowProps) {
   const display = getBookmarkDisplayInfo(record);
   const openLabel = bookmarkOpenLabel(display);
@@ -95,6 +101,16 @@ export function BookmarkRow({
       className={`bookmark-row${highlighted ? ' bookmark-row--highlighted' : ''}`}
       data-highlighted={highlighted ? 'true' : undefined}
     >
+      <span className="bookmark-row__select">
+        {selectable && (
+          <input
+            aria-label={`选择 ${display.displayTitle}`}
+            checked={selected}
+            onChange={(event) => onSelectionChange?.(record, event.target.checked)}
+            type="checkbox"
+          />
+        )}
+      </span>
       <span className="bookmark-row__icon">
         {record.isFolder ? (
           <Folder aria-hidden="true" className="item-icon item-icon--folder" />

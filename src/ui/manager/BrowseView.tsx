@@ -14,6 +14,8 @@ interface BrowseViewProps {
   readonly model: BookmarkViewModel;
   readonly activeFolderId: string;
   readonly highlightedId?: string;
+  readonly selectedIds?: ReadonlySet<string>;
+  readonly isQuarantineFolder?: boolean;
   readonly onCreateBookmark?: (parentId: string) => void;
   readonly onCreateFolder?: (parentId: string) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
@@ -21,12 +23,15 @@ interface BrowseViewProps {
   readonly onMove?: (record: BookmarkRecord) => void;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onQuarantine?: (record: BookmarkRecord) => void;
+  readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
 }
 
 export function BrowseView({
   model,
   activeFolderId,
   highlightedId,
+  selectedIds,
+  isQuarantineFolder = false,
   onCreateBookmark,
   onCreateFolder,
   onEdit,
@@ -34,6 +39,7 @@ export function BrowseView({
   onMove,
   onOpen,
   onQuarantine,
+  onSelectionChange,
 }: BrowseViewProps) {
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
 
@@ -126,7 +132,15 @@ export function BrowseView({
                 onMove={onMove}
                 onOpen={onOpen}
                 onQuarantine={onQuarantine}
+                onSelectionChange={onSelectionChange}
                 record={record}
+                selectable={
+                  !record.isRoot &&
+                  !record.isUnmodifiable &&
+                  record.title !== '待删除（书签工作台）' &&
+                  (!record.isFolder || !isQuarantineFolder)
+                }
+                selected={selectedIds?.has(record.id) ?? false}
               />
             ))}
           </ul>
