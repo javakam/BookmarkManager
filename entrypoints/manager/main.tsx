@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
 
 import { createChromeBookmarkRepository } from '../../src/platform/bookmark-repository';
+import { createBrowserBookmarkOperationStorage } from '../../src/platform/bookmark-operation-storage';
 import { createBrowserManagerSettingsRepository } from '../../src/platform/manager-settings-repository';
 import { ManagerApp } from '../../src/ui/manager/ManagerApp';
 import '../../src/ui/manager/tokens.css';
@@ -16,6 +17,7 @@ if (!root) {
 
 const repository = createChromeBookmarkRepository();
 const settingsRepository = createBrowserManagerSettingsRepository();
+const operationStorage = createBrowserBookmarkOperationStorage();
 
 createRoot(root).render(
   <StrictMode>
@@ -23,6 +25,7 @@ createRoot(root).render(
       openUrl={async (url) => {
         await browser.tabs.create({ url });
       }}
+      operationStorage={operationStorage}
       repository={repository}
       settingsRepository={settingsRepository}
     />

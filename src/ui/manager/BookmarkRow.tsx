@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, Folder, Globe, Lock } from 'lucide-react';
+import {
+  Archive,
+  ExternalLink,
+  Folder,
+  Globe,
+  Lock,
+  MoveRight,
+  Pencil,
+} from 'lucide-react';
 
 import {
   getBookmarkDisplayInfo,
@@ -12,6 +20,9 @@ interface BookmarkRowProps {
   readonly highlighted?: boolean;
   readonly onEnterFolder: (folderId: string) => void;
   readonly onOpen: (record: BookmarkRecord) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onQuarantine?: (record: BookmarkRecord) => void;
 }
 
 export function createFaviconUrl(url: string): string {
@@ -70,10 +81,14 @@ export function BookmarkRow({
   record,
   highlighted = false,
   onEnterFolder,
+  onEdit,
+  onMove,
   onOpen,
+  onQuarantine,
 }: BookmarkRowProps) {
   const display = getBookmarkDisplayInfo(record);
   const openLabel = bookmarkOpenLabel(display);
+  const isWritable = !record.isRoot && !record.isUnmodifiable;
 
   return (
     <li
@@ -132,6 +147,39 @@ export function BookmarkRow({
             type="button"
           >
             <ExternalLink aria-hidden="true" size={17} />
+          </button>
+        )}
+        {isWritable && onEdit && (
+          <button
+            aria-label={`编辑 ${display.displayTitle}`}
+            className="icon-button"
+            onClick={() => onEdit(record)}
+            title={`编辑 ${display.displayTitle}`}
+            type="button"
+          >
+            <Pencil aria-hidden="true" size={16} />
+          </button>
+        )}
+        {isWritable && onMove && (
+          <button
+            aria-label={`移动 ${display.displayTitle}`}
+            className="icon-button"
+            onClick={() => onMove(record)}
+            title={`移动 ${display.displayTitle}`}
+            type="button"
+          >
+            <MoveRight aria-hidden="true" size={16} />
+          </button>
+        )}
+        {isWritable && !record.isFolder && onQuarantine && (
+          <button
+            aria-label={`移到待删除 ${display.displayTitle}`}
+            className="icon-button"
+            onClick={() => onQuarantine(record)}
+            title={`移到待删除 ${display.displayTitle}`}
+            type="button"
+          >
+            <Archive aria-hidden="true" size={16} />
           </button>
         )}
       </span>

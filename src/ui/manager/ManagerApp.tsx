@@ -13,6 +13,10 @@ import {
   useState,
 } from 'react';
 
+import {
+  createBookmarkOperationService,
+  type BookmarkOperationPlan,
+} from '../../app/bookmark-operation-service';
 import { BookmarkIndex } from '../../app/bookmark-index';
 import { createBookmarkViewModel, getBookmarkDisplayInfo } from '../../app/bookmark-view-model';
 import { useBookmarks } from '../../app/use-bookmarks';
@@ -22,13 +26,22 @@ import {
   type OrganizeAnalyzers,
 } from '../../app/use-organize-analysis';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import type { BookmarkOperationExecution } from '../../domain/bookmark-operations';
 import type { BookmarkRepository } from '../../platform/bookmark-repository';
+import {
+  createMemoryBookmarkOperationStorage,
+  type BookmarkOperationStorage,
+} from '../../platform/bookmark-operation-storage';
 import {
   DEFAULT_MANAGER_SETTINGS,
   type ManagerSettingsRepository,
 } from '../../platform/manager-settings-repository';
+import { BookmarkEditorDialog } from './BookmarkEditorDialog';
 import { BrowseView } from './BrowseView';
+import { ConfirmOperationDialog } from './ConfirmOperationDialog';
 import { FolderTree, type ManagerView } from './FolderTree';
+import { MoveBookmarkDialog } from './MoveBookmarkDialog';
+import { OperationResultDialog } from './OperationResultDialog';
 import { OrganizeView } from './OrganizeView';
 import { SearchResults } from './SearchResults';
 import { SettingsView } from './SettingsView';
@@ -38,9 +51,14 @@ type SearchScopeMode = 'all' | 'folder';
 export interface ManagerAppProps {
   readonly repository: BookmarkRepository;
   readonly settingsRepository?: ManagerSettingsRepository;
+  readonly operationStorage?: BookmarkOperationStorage;
   readonly openUrl: (url: string) => Promise<void>;
   readonly organizeAnalyzers?: OrganizeAnalyzers;
 }
+
+type EditorState =
+  | { readonly mode: 'create-bookmark' | 'create-folder'; readonly parentId: string }
+  | { readonly mode: 'edit'; readonly record: BookmarkRecord };
 
 function createDefaultSettingsRepository(): ManagerSettingsRepository {
   let settings = { ...DEFAULT_MANAGER_SETTINGS };
@@ -57,13 +75,23 @@ function createDefaultSettingsRepository(): ManagerSettingsRepository {
 export function ManagerApp({
   repository,
   settingsRepository,
+  operationStorage,
   openUrl,
   organizeAnalyzers,
 }: ManagerAppProps) {
   const data = useBookmarks(repository);
   const [defaultSettingsRepository] = useState(createDefaultSettingsRepository);
+  const [defaultOperationStorage] = useState(createMemoryBookmarkOperationStorage);
   const managerSettings = useManagerSettings(
     settingsRepository ?? defaultSettingsRepository,
+  );
+  const operationService = useMemo(
+    () =>
+      createBookmarkOperationService({
+        repository,
+        storage: operationStorage ?? defaultOperationStorage,
+      }),
+    [defaultOperationStorage, operationStorage, repository],
   );
   const model = useMemo(
     () => createBookmarkViewModel(data.records),
@@ -82,6 +110,13 @@ export function ManagerApp({
   const [scopeMode, setScopeMode] = useState<SearchScopeMode>('all');
   const [highlightedId, setHighlightedId] = useState<string>();
   const [openError, setOpenError] = useState<string>();
+  const [operationError, setOperationError] = useState<string>();
+  const [editorState, setEditorState] = useState<EditorState>();
+  const [moveRecord, setMoveRecord] = useState<BookmarkRecord>();
+  const [confirmPlan, setConfirmPlan] = useState<BookmarkOperationPlan>();
+  const [operationResult, setOperationResult] =
+    useState<BookmarkOperationExecution>();
+  const [isExecutingOperation, setIsExecutingOperation] = useState(false);
   const [locationStatus, setLocationStatus] = useState<string>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const organizeAnalysis = useOrganizeAnalysis(
@@ -210,6 +245,111 @@ export function ManagerApp({
     [revealFolder],
   );
 
+  const clearOperationUi = useCallback(() => {
+    setEditorState(undefined);
+    setMoveRecord(undefined);
+    setConfirmPlan(undefined);
+    setOperationError(undefined);
+  }, []);
+
+  const previewCreateOrEdit = useCallback(
+    (input: { title: string; url?: string }) => {
+      if (!editorState) {
+        return;
+      }
+      try {
+        const plan =
+          editorState.mode === 'create-bookmark'
+            ? operationService.planCreateBookmark(data.records, {
+                parentId: editorState.parentId,
+                title: input.title,
+                url: input.url ?? '',
+              })
+            : editorState.mode === 'create-folder'
+              ? operationService.planCreateFolder(data.records, {
+                  parentId: editorState.parentId,
+                  title: input.title,
+                })
+              : operationService.planUpdate(data.records, editorState.record.id, {
+                  title: input.title,
+                  ...(editorState.record.isFolder ? {} : { url: input.url ?? '' }),
+                });
+        setEditorState(undefined);
+        setConfirmPlan(plan);
+        setOperationError(undefined);
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [data.records, editorState, operationService],
+  );
+
+  const previewMove = useCallback(
+    (targetFolderId: string) => {
+      if (!moveRecord) {
+        return;
+      }
+      try {
+        setMoveRecord(undefined);
+        setConfirmPlan(
+          operationService.planMove(data.records, [moveRecord.id], {
+            parentId: targetFolderId,
+          }),
+        );
+        setOperationError(undefined);
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [data.records, moveRecord, operationService],
+  );
+
+  const previewQuarantine = useCallback(
+    (record: BookmarkRecord) => {
+      try {
+        setConfirmPlan(operationService.planQuarantine(data.records, [record.id]));
+        setOperationError(undefined);
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [data.records, operationService],
+  );
+
+  const executeConfirmedPlan = useCallback(async () => {
+    if (!confirmPlan) {
+      return;
+    }
+    setIsExecutingOperation(true);
+    setOperationError(undefined);
+    try {
+      const execution = await operationService.execute(confirmPlan);
+      setConfirmPlan(undefined);
+      setOperationResult(execution);
+      await data.refresh();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsExecutingOperation(false);
+    }
+  }, [confirmPlan, data, operationService]);
+
+  const writableMoveTargets = useMemo(() => {
+    if (!moveRecord) {
+      return [];
+    }
+    const blockedIds = moveRecord.isFolder
+      ? new Set([moveRecord.id, ...model.getDescendantIds(moveRecord.id)])
+      : new Set<string>();
+    return model.searchableRecords.filter(
+      (record) =>
+        record.isFolder &&
+        !record.isRoot &&
+        !record.isUnmodifiable &&
+        !blockedIds.has(record.id),
+    );
+  }, [model, moveRecord]);
+
   const bookmarkCount = model.searchableRecords.filter(
     (record) => !record.isFolder,
   ).length;
@@ -291,8 +431,17 @@ export function ManagerApp({
         activeFolderId={resolvedFolderId}
         highlightedId={highlightedId}
         model={model}
+        onCreateBookmark={(parentId) =>
+          setEditorState({ mode: 'create-bookmark', parentId })
+        }
+        onCreateFolder={(parentId) =>
+          setEditorState({ mode: 'create-folder', parentId })
+        }
+        onEdit={(record) => setEditorState({ mode: 'edit', record })}
         onNavigate={navigate}
+        onMove={setMoveRecord}
         onOpen={(record) => void handleOpen(record)}
+        onQuarantine={previewQuarantine}
       />
     );
   }
@@ -400,10 +549,41 @@ export function ManagerApp({
             </div>
           )}
           {openError && <div className="inline-error" role="alert">{openError}</div>}
+          {operationError && <div className="inline-error" role="alert">{operationError}</div>}
           {locationStatus && <div className="location-status" role="status">{locationStatus}</div>}
           {content}
         </main>
       </div>
+      {editorState && (
+        <BookmarkEditorDialog
+          mode={editorState.mode}
+          onCancel={clearOperationUi}
+          onPreview={previewCreateOrEdit}
+          record={editorState.mode === 'edit' ? editorState.record : undefined}
+        />
+      )}
+      {moveRecord && (
+        <MoveBookmarkDialog
+          folders={writableMoveTargets}
+          model={model}
+          onCancel={clearOperationUi}
+          onPreview={previewMove}
+        />
+      )}
+      {confirmPlan && (
+        <ConfirmOperationDialog
+          disabled={isExecutingOperation}
+          onCancel={clearOperationUi}
+          onConfirm={() => void executeConfirmedPlan()}
+          plan={confirmPlan}
+        />
+      )}
+      {operationResult && (
+        <OperationResultDialog
+          execution={operationResult}
+          onClose={() => setOperationResult(undefined)}
+        />
+      )}
     </div>
   );
 }

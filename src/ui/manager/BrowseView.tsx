@@ -1,4 +1,4 @@
-import { ChevronRight, Lock } from 'lucide-react';
+import { ChevronRight, FolderPlus, Lock, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import {
@@ -14,16 +14,26 @@ interface BrowseViewProps {
   readonly model: BookmarkViewModel;
   readonly activeFolderId: string;
   readonly highlightedId?: string;
+  readonly onCreateBookmark?: (parentId: string) => void;
+  readonly onCreateFolder?: (parentId: string) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onNavigate: (folderId: string) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
   readonly onOpen: (record: BookmarkRecord) => void;
+  readonly onQuarantine?: (record: BookmarkRecord) => void;
 }
 
 export function BrowseView({
   model,
   activeFolderId,
   highlightedId,
+  onCreateBookmark,
+  onCreateFolder,
+  onEdit,
   onNavigate,
+  onMove,
   onOpen,
+  onQuarantine,
 }: BrowseViewProps) {
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
 
@@ -40,6 +50,7 @@ export function BrowseView({
   const breadcrumbs = model.getBreadcrumbs(activeFolderId);
   const children = model.childrenByParentId.get(activeFolderId) ?? [];
   const visibleChildren = children.slice(0, visibleLimit);
+  const canWriteInFolder = !activeFolder.isRoot && !activeFolder.isUnmodifiable;
 
   return (
     <section aria-labelledby="browse-heading" className="browse-view">
@@ -82,6 +93,26 @@ export function BrowseView({
           )}
           <span>{children.length} 项</span>
         </div>
+        {canWriteInFolder && (
+          <div className="content-heading__actions">
+            <button
+              className="command-button"
+              onClick={() => onCreateBookmark?.(activeFolderId)}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={15} />
+              新建书签
+            </button>
+            <button
+              className="command-button"
+              onClick={() => onCreateFolder?.(activeFolderId)}
+              type="button"
+            >
+              <FolderPlus aria-hidden="true" size={15} />
+              新建文件夹
+            </button>
+          </div>
+        )}
       </div>
       {children.length > 0 ? (
         <>
@@ -91,7 +122,10 @@ export function BrowseView({
                 highlighted={highlightedId === record.id}
                 key={record.id}
                 onEnterFolder={onNavigate}
+                onEdit={onEdit}
+                onMove={onMove}
                 onOpen={onOpen}
+                onQuarantine={onQuarantine}
                 record={record}
               />
             ))}
