@@ -1,0 +1,98 @@
+:root {
+  color: #18211d;
+  background: #f3f5f4;
+  font-family:
+    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 320px;
+  min-width: 320px;
+  margin: 0;
+}
+
+body {
+  background: #f3f5f4;
+}
+
+button {
+  font: inherit;
+}
+
+.popup-shell {
+  display: grid;
+  width: 320px;
+  padding: 20px;
+  gap: 16px;
+  background: #ffffff;
+}
+
+.popup-title {
+  margin: 0;
+  color: #18211d;
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.popup-command {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 14px;
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid #174c3a;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #205c47;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.popup-command span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.popup-command svg {
+  flex: 0 0 auto;
+}
+
+.popup-command:hover:not(:disabled) {
+  background: #174c3a;
+}
+
+.popup-command:focus-visible {
+  outline: 2px solid #6b8f81;
+  outline-offset: 2px;
+}
+
+.popup-command:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.popup-error {
+  margin: -4px 0 0;
+  color: #9f2d2d;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
