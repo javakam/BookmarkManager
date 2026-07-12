@@ -126,6 +126,31 @@ describe('useBookmarks', () => {
     expect(result.current.revision).toBe(1);
   });
 
+  it('clears an old repository import state while the new read is pending', async () => {
+    const oldRepository = repositoryStub(
+      vi.fn().mockResolvedValue(tree('旧仓库快照')),
+    );
+    const newRead = deferred<BrowserBookmarkNode[]>();
+    const newRepository = repositoryStub(() => newRead.promise);
+    const { rerender, result } = renderHook(
+      ({ repository }) => useBookmarks(repository),
+      { initialProps: { repository: oldRepository } },
+    );
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    act(() => oldRepository.emitChanged('import-began'));
+    expect(result.current.isImporting).toBe(true);
+
+    rerender({ repository: newRepository });
+    expect(result.current.status).toBe('loading');
+    expect(result.current.isImporting).toBe(false);
+    expect(result.current.records.find(({ id }) => id === 'bar')?.title).toBe(
+      '旧仓库快照',
+    );
+
+    await act(async () => newRead.resolve(tree('新仓库快照')));
+  });
+
   describe('refresh scheduling', () => {
     beforeEach(() => {
       vi.useFakeTimers();
@@ -186,6 +211,35 @@ describe('useBookmarks', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000);
       });
+      expect(getTree).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not leave a debounce timer after a forced trailing read starts', async () => {
+      const firstRead = deferred<BrowserBookmarkNode[]>();
+      const forcedRead = deferred<BrowserBookmarkNode[]>();
+      const getTree = vi
+        .fn<BookmarkRepository['getTree']>()
+        .mockReturnValueOnce(firstRead.promise)
+        .mockReturnValueOnce(forcedRead.promise)
+        .mockResolvedValue(tree('意外的第三次读取'));
+      const repository = repositoryStub(getTree);
+      const { result } = renderHook(() => useBookmarks(repository));
+
+      let refreshPromise!: Promise<void>;
+      act(() => {
+        refreshPromise = result.current.refresh();
+        repository.emitChanged();
+      });
+
+      await act(async () => firstRead.resolve(tree('首次读取')));
+      expect(getTree).toHaveBeenCalledTimes(2);
+
+      await act(async () => forcedRead.resolve(tree('强制尾随读取')));
+      await act(async () => {
+        await refreshPromise;
+        await vi.advanceTimersByTimeAsync(200);
+      });
+
       expect(getTree).toHaveBeenCalledTimes(2);
     });
 

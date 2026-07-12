@@ -65,6 +65,10 @@ export function useBookmarks(
     dirty.current = false;
     isImporting.current = false;
     forceAfterFlight.current = false;
+    setSnapshot((current) => ({
+      ...current,
+      isImporting: false,
+    }));
 
     const clearRefreshTimer = () => {
       if (refreshTimer.current !== undefined) {
@@ -149,6 +153,7 @@ export function useBookmarks(
         }
         if (forceAfterFlight.current) {
           forceAfterFlight.current = false;
+          clearRefreshTimer();
           dirty.current = false;
           void startRead();
           return;
