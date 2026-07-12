@@ -46,6 +46,7 @@ function repositoryStub(
   getTree: BookmarkRepository['getTree'],
 ): BookmarkRepository & {
   emitChanged: (change?: BookmarkRepositoryChange) => void;
+  listenerCount: () => number;
 } {
   let listener:
     | ((change: BookmarkRepositoryChange) => void)
@@ -65,6 +66,9 @@ function repositoryStub(
     },
     emitChanged(change = 'changed') {
       listener?.(change);
+    },
+    listenerCount() {
+      return listener === undefined ? 0 : 1;
     },
   };
 }
@@ -394,6 +398,19 @@ describe('useBookmarks', () => {
     it('disposes StrictMode reads, timers, and event listeners on unmount', async () => {
       const firstRead = deferred<BrowserBookmarkNode[]>();
       const secondRead = deferred<BrowserBookmarkNode[]>();
+      const windowAddEventListener = vi.spyOn(window, 'addEventListener');
+      const windowRemoveEventListener = vi.spyOn(
+        window,
+        'removeEventListener',
+      );
+      const documentAddEventListener = vi.spyOn(
+        document,
+        'addEventListener',
+      );
+      const documentRemoveEventListener = vi.spyOn(
+        document,
+        'removeEventListener',
+      );
       const getTree = vi
         .fn<BookmarkRepository['getTree']>()
         .mockReturnValueOnce(firstRead.promise)
@@ -404,10 +421,33 @@ describe('useBookmarks', () => {
         { reactStrictMode: true },
       );
       expect(getTree).toHaveBeenCalledTimes(2);
+      expect(repository.listenerCount()).toBe(1);
 
       act(() => repository.emitChanged());
+      expect(vi.getTimerCount()).toBe(1);
       const snapshotAtUnmount = result.current;
       unmount();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(repository.listenerCount()).toBe(0);
+
+      const addedFocusListeners = windowAddEventListener.mock.calls
+        .filter(([eventName]) => eventName === 'focus')
+        .map(([, listener]) => listener);
+      const removedFocusListeners = windowRemoveEventListener.mock.calls
+        .filter(([eventName]) => eventName === 'focus')
+        .map(([, listener]) => listener);
+      expect(addedFocusListeners.length).toBeGreaterThan(0);
+      expect(removedFocusListeners).toEqual(addedFocusListeners);
+
+      const addedVisibilityListeners = documentAddEventListener.mock.calls
+        .filter(([eventName]) => eventName === 'visibilitychange')
+        .map(([, listener]) => listener);
+      const removedVisibilityListeners =
+        documentRemoveEventListener.mock.calls
+          .filter(([eventName]) => eventName === 'visibilitychange')
+          .map(([, listener]) => listener);
+      expect(addedVisibilityListeners.length).toBeGreaterThan(0);
+      expect(removedVisibilityListeners).toEqual(addedVisibilityListeners);
 
       act(() => {
         repository.emitChanged();
@@ -423,6 +463,11 @@ describe('useBookmarks', () => {
 
       expect(getTree).toHaveBeenCalledTimes(2);
       expect(result.current).toBe(snapshotAtUnmount);
+
+      windowAddEventListener.mockRestore();
+      windowRemoveEventListener.mockRestore();
+      documentAddEventListener.mockRestore();
+      documentRemoveEventListener.mockRestore();
     });
   });
 });
