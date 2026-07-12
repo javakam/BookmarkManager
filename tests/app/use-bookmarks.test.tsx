@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useBookmarks } from '../../src/app/use-bookmarks';
@@ -9,6 +9,9 @@ import type {
   BookmarkRepository,
   BookmarkRepositoryChange,
 } from '../../src/platform/bookmark-repository';
+
+afterEach(cleanup);
+afterEach(() => vi.restoreAllMocks());
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -160,7 +163,7 @@ describe('useBookmarks', () => {
       vi.useRealTimers();
     });
 
-    it('subscribes before the initial read and coalesces rapid changes for 200ms', async () => {
+    it('subscribes before starting the initial read', async () => {
       let repository!: ReturnType<typeof repositoryStub>;
       const getTree = vi.fn<BookmarkRepository['getTree']>(async () => {
         if (getTree.mock.calls.length === 1) {
@@ -171,8 +174,34 @@ describe('useBookmarks', () => {
       repository = repositoryStub(getTree);
       renderHook(() => useBookmarks(repository));
 
-      repository.emitChanged();
-      repository.emitChanged();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(199);
+      });
+      expect(getTree).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(getTree).toHaveBeenCalledTimes(2);
+    });
+
+    it('coalesces rapid ordinary changes for 200ms after the last event', async () => {
+      const getTree = vi
+        .fn<BookmarkRepository['getTree']>()
+        .mockResolvedValue(tree('书签栏'));
+      const repository = repositoryStub(getTree);
+      renderHook(() => useBookmarks(repository));
+      await act(async () => {});
+
+      act(() => repository.emitChanged());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      act(() => {
+        repository.emitChanged();
+        repository.emitChanged();
+      });
+
       await act(async () => {
         await vi.advanceTimersByTimeAsync(199);
       });
@@ -243,37 +272,48 @@ describe('useBookmarks', () => {
       expect(getTree).toHaveBeenCalledTimes(2);
     });
 
-    it('suppresses intermediate import refreshes and forces one at import end', async () => {
+    it('discards an in-flight import snapshot and refreshes once after import end', async () => {
+      const initialRead = deferred<BrowserBookmarkNode[]>();
+      const importedRead = deferred<BrowserBookmarkNode[]>();
       const getTree = vi
         .fn<BookmarkRepository['getTree']>()
-        .mockResolvedValueOnce(tree('导入前'))
-        .mockResolvedValueOnce(tree('导入后'));
+        .mockReturnValueOnce(initialRead.promise)
+        .mockReturnValueOnce(importedRead.promise);
       const repository = repositoryStub(getTree);
       const { result } = renderHook(() => useBookmarks(repository));
-      await act(async () => {});
 
-      repository.emitChanged();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(100);
-      });
       act(() => repository.emitChanged('import-began'));
       expect(result.current.isImporting).toBe(true);
 
-      repository.emitChanged();
+      act(() => repository.emitChanged());
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000);
       });
       expect(getTree).toHaveBeenCalledTimes(1);
 
-      await act(async () => repository.emitChanged('import-ended'));
+      await act(async () => initialRead.resolve(tree('导入中的半成品')));
+      expect(result.current.status).toBe('loading');
+      expect(result.current.records).toEqual([]);
+      expect(result.current.revision).toBe(0);
+      expect(result.current.lastUpdatedAt).toBeUndefined();
+
+      act(() => repository.emitChanged('import-ended'));
       expect(result.current.isImporting).toBe(false);
       expect(getTree).toHaveBeenCalledTimes(2);
+
+      await act(async () => importedRead.resolve(tree('完整导入结果')));
       expect(result.current.records.find(({ id }) => id === 'bar')?.title).toBe(
-        '导入后',
+        '完整导入结果',
       );
+      expect(result.current.revision).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(getTree).toHaveBeenCalledTimes(2);
     });
 
-    it('coalesces focus and visible-page refreshes through the same scheduler', async () => {
+    it('schedules a refresh when the window regains focus', async () => {
       const getTree = vi
         .fn<BookmarkRepository['getTree']>()
         .mockResolvedValue(tree('书签栏'));
@@ -281,8 +321,40 @@ describe('useBookmarks', () => {
       renderHook(() => useBookmarks(repository));
       await act(async () => {});
 
-      window.dispatchEvent(new Event('focus'));
-      document.dispatchEvent(new Event('visibilitychange'));
+      act(() => window.dispatchEvent(new Event('focus')));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(199);
+      });
+      expect(getTree).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(getTree).toHaveBeenCalledTimes(2);
+    });
+
+    it('refreshes only when a visibility change makes the page visible', async () => {
+      const getTree = vi
+        .fn<BookmarkRepository['getTree']>()
+        .mockResolvedValue(tree('书签栏'));
+      const repository = repositoryStub(getTree);
+      renderHook(() => useBookmarks(repository));
+      await act(async () => {});
+      const visibilityState = vi.spyOn(
+        document,
+        'visibilityState',
+        'get',
+      );
+
+      visibilityState.mockReturnValue('hidden');
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(getTree).toHaveBeenCalledTimes(1);
+
+      visibilityState.mockReturnValue('visible');
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(199);
       });
@@ -317,6 +389,40 @@ describe('useBookmarks', () => {
       );
       expect(result.current.lastUpdatedAt).toBe(1_000);
       expect(result.current.revision).toBe(1);
+    });
+
+    it('disposes StrictMode reads, timers, and event listeners on unmount', async () => {
+      const firstRead = deferred<BrowserBookmarkNode[]>();
+      const secondRead = deferred<BrowserBookmarkNode[]>();
+      const getTree = vi
+        .fn<BookmarkRepository['getTree']>()
+        .mockReturnValueOnce(firstRead.promise)
+        .mockReturnValueOnce(secondRead.promise);
+      const repository = repositoryStub(getTree);
+      const { result, unmount } = renderHook(
+        () => useBookmarks(repository),
+        { reactStrictMode: true },
+      );
+      expect(getTree).toHaveBeenCalledTimes(2);
+
+      act(() => repository.emitChanged());
+      const snapshotAtUnmount = result.current;
+      unmount();
+
+      act(() => {
+        repository.emitChanged();
+        window.dispatchEvent(new Event('focus'));
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await act(async () => {
+        firstRead.resolve(tree('卸载后的旧结果'));
+        secondRead.reject(new Error('卸载后的失败'));
+        await Promise.allSettled([firstRead.promise, secondRead.promise]);
+        await vi.runAllTimersAsync();
+      });
+
+      expect(getTree).toHaveBeenCalledTimes(2);
+      expect(result.current).toBe(snapshotAtUnmount);
     });
   });
 });
