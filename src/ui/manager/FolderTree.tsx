@@ -1,7 +1,10 @@
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   Folder,
+  GripVertical,
   Library,
   ListFilter,
   Lock,
@@ -10,6 +13,7 @@ import {
 
 import type { BookmarkViewModel } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import type { FolderDropPosition } from '../../domain/folder-reorder';
 
 export type ManagerView = 'browse' | 'organize' | 'settings';
 
@@ -22,6 +26,11 @@ interface FolderTreeProps {
   readonly onSelect: (folderId: string) => void;
   readonly onToggle: (folderId: string) => void;
   readonly onViewChange: (view: ManagerView) => void;
+  readonly onReorder?: (
+    sourceId: string,
+    anchorId: string,
+    position: FolderDropPosition,
+  ) => void;
 }
 
 type FolderTreeNodeProps = Pick<
@@ -32,6 +41,7 @@ type FolderTreeNodeProps = Pick<
   | 'showFolderCounts'
   | 'onSelect'
   | 'onToggle'
+  | 'onReorder'
 > & {
   readonly folder: BookmarkRecord;
   readonly depth: number;
@@ -46,6 +56,7 @@ function FolderTreeNode({
   showFolderCounts,
   onSelect,
   onToggle,
+  onReorder,
 }: FolderTreeNodeProps) {
   const childFolders = (model.childrenByParentId.get(folder.id) ?? []).filter(
     (record) => record.isFolder,
@@ -58,11 +69,57 @@ function FolderTreeNode({
   const totalBookmarkCount =
     model.totalBookmarkCountByFolderId.get(folder.id) ?? 0;
   const countLabel = `直属 ${directBookmarkCount}，合计 ${totalBookmarkCount}`;
+  const siblingFolders = folder.parentId
+    ? (model.childrenByParentId.get(folder.parentId) ?? []).filter(
+        (record) =>
+          record.isFolder &&
+          record.folderType === 'unknown' &&
+          !record.isUnmodifiable,
+      )
+    : [];
+  const siblingIndex = siblingFolders.findIndex(
+    (record) => record.id === folder.id,
+  );
+  const previousFolder =
+    siblingIndex > 0 ? siblingFolders[siblingIndex - 1] : undefined;
+  const nextFolder =
+    siblingIndex >= 0 && siblingIndex < siblingFolders.length - 1
+      ? siblingFolders[siblingIndex + 1]
+      : undefined;
+  const canReorder =
+    folder.folderType === 'unknown' &&
+    !folder.isRoot &&
+    !folder.isUnmodifiable &&
+    folder.parentId !== undefined &&
+    onReorder !== undefined;
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!canReorder) {
+      return;
+    }
+    event.preventDefault();
+    try {
+      const payload = JSON.parse(
+        event.dataTransfer.getData('application/x-bookmark-folder'),
+      ) as { sourceId?: string; parentId?: string };
+      if (payload.parentId === folder.parentId && payload.sourceId) {
+        onReorder?.(payload.sourceId, folder.id, 'after');
+      }
+    } catch {
+      // Ignore malformed drops from outside this sidebar.
+    }
+  };
 
   return (
     <li>
       <div
         className={`folder-tree__row${isActive ? ' folder-tree__row--active' : ''}`}
+        onDragOver={(event) => {
+          if (canReorder) {
+            event.preventDefault();
+          }
+        }}
+        onDrop={handleDrop}
         style={{ '--tree-depth': depth } as React.CSSProperties}
       >
         {childFolders.length > 0 ? (
@@ -93,6 +150,54 @@ function FolderTreeNode({
         >
           {label}
         </button>
+        {canReorder && (
+          <span className="folder-tree__reorder">
+            <button
+              aria-label={`拖动排序 ${label}`}
+              className="tree-reorder-button"
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData(
+                  'application/x-bookmark-folder',
+                  JSON.stringify({
+                    sourceId: folder.id,
+                    parentId: folder.parentId,
+                  }),
+                );
+              }}
+              title={`拖动排序 ${label}`}
+              type="button"
+            >
+              <GripVertical aria-hidden="true" size={14} />
+            </button>
+            <button
+              aria-label={`上移 ${label}`}
+              className="tree-reorder-button"
+              disabled={!previousFolder}
+              onClick={() =>
+                previousFolder &&
+                onReorder?.(folder.id, previousFolder.id, 'before')
+              }
+              title={`上移 ${label}`}
+              type="button"
+            >
+              <ArrowUp aria-hidden="true" size={14} />
+            </button>
+            <button
+              aria-label={`下移 ${label}`}
+              className="tree-reorder-button"
+              disabled={!nextFolder}
+              onClick={() =>
+                nextFolder && onReorder?.(folder.id, nextFolder.id, 'after')
+              }
+              title={`下移 ${label}`}
+              type="button"
+            >
+              <ArrowDown aria-hidden="true" size={14} />
+            </button>
+          </span>
+        )}
         {showFolderCounts && (
           <span
             aria-label={countLabel}
@@ -131,6 +236,7 @@ function FolderTreeNode({
               folder={child}
               key={child.id}
               model={model}
+              onReorder={onReorder}
               onSelect={onSelect}
               onToggle={onToggle}
               showFolderCounts={showFolderCounts}

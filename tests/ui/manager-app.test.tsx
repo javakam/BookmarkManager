@@ -458,6 +458,62 @@ describe('ManagerApp browse shell', () => {
       ),
     ).toBeTruthy();
   });
+
+  it('previews and executes same-level folder ordering through the sidebar controls', async () => {
+    const tree: BrowserBookmarkNode[] = [
+      {
+        id: 'root',
+        title: '',
+        children: [
+          {
+            id: 'bar',
+            parentId: 'root',
+            index: 0,
+            title: '书签栏',
+            folderType: 'bookmarks-bar',
+            children: [
+              {
+                id: 'folder-a',
+                parentId: 'bar',
+                index: 0,
+                title: 'Folder A',
+                children: [],
+              },
+              {
+                id: 'bookmark-x',
+                parentId: 'bar',
+                index: 1,
+                title: 'Bookmark X',
+                url: 'https://x.example.test',
+              },
+              {
+                id: 'folder-b',
+                parentId: 'bar',
+                index: 2,
+                title: 'Folder B',
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const { repository } = await renderReady(tree);
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
+    fireEvent.click(within(sidebar).getByRole('button', { name: '下移 Folder A' }));
+
+    expect(await screen.findByText('将调整 1 个文件夹顺序')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
+    await screen.findByRole('dialog', { name: '操作结果' });
+
+    expect(repository.move).toHaveBeenCalledWith('folder-a', {
+      parentId: 'bar',
+      index: 2,
+    });
+    expect(within(sidebar).queryByRole('button', { name: /下移 书签栏/ })).toBeNull();
+  });
 });
 
 describe('ManagerApp settings', () => {

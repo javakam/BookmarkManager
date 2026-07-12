@@ -26,6 +26,10 @@ import {
   type OrganizeAnalyzers,
 } from '../../app/use-organize-analysis';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import {
+  calculateFolderMove,
+  type FolderDropPosition,
+} from '../../domain/folder-reorder';
 import type { BookmarkOperationExecution } from '../../domain/bookmark-operations';
 import type { BookmarkRepository } from '../../platform/bookmark-repository';
 import {
@@ -316,6 +320,34 @@ export function ManagerApp({
     [data.records, operationService],
   );
 
+  const previewFolderReorder = useCallback(
+    (sourceId: string, anchorId: string, position: FolderDropPosition) => {
+      const source = model.recordById.get(sourceId);
+      if (!source?.parentId) {
+        return;
+      }
+      const destination = calculateFolderMove(
+        model.childrenByParentId.get(source.parentId) ?? [],
+        sourceId,
+        anchorId,
+        position,
+      );
+      if (!destination) {
+        setOperationError('只能在同一层级调整文件夹顺序');
+        return;
+      }
+      try {
+        setConfirmPlan(
+          operationService.planReorder(data.records, sourceId, destination),
+        );
+        setOperationError(undefined);
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [data.records, model, operationService],
+  );
+
   const executeConfirmedPlan = useCallback(async () => {
     if (!confirmPlan) {
       return;
@@ -526,6 +558,7 @@ export function ManagerApp({
           expandedFolderIds={expandedFolderIds}
           model={model}
           onSelect={navigate}
+          onReorder={previewFolderReorder}
           onToggle={(folderId) => {
             setExpandedFolderIds((current) => {
               const next = new Set(current);
