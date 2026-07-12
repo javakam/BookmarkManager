@@ -31,7 +31,7 @@ import {
   type FolderDropPosition,
 } from '../../domain/folder-reorder';
 import {
-  QUARANTINE_FOLDER_TITLE,
+  isQuarantineFolder as isNativeQuarantineFolder,
   type BookmarkOperationExecution,
 } from '../../domain/bookmark-operations';
 import type { BookmarkRepository } from '../../platform/bookmark-repository';
@@ -125,6 +125,8 @@ export function ManagerApp({
   const [editorState, setEditorState] = useState<EditorState>();
   const [moveRecord, setMoveRecord] = useState<BookmarkRecord>();
   const [moveSourceIds, setMoveSourceIds] = useState<readonly string[]>();
+  const [restoreFallbackEntries, setRestoreFallbackEntries] =
+    useState<readonly BookmarkRecoveryEntry[]>();
   const [confirmPlan, setConfirmPlan] = useState<BookmarkOperationPlan>();
   const [operationResult, setOperationResult] =
     useState<BookmarkOperationExecution>();
@@ -290,6 +292,7 @@ export function ManagerApp({
     setEditorState(undefined);
     setMoveRecord(undefined);
     setMoveSourceIds(undefined);
+    setRestoreFallbackEntries(undefined);
     setConfirmPlan(undefined);
     setOperationError(undefined);
   }, []);
@@ -330,6 +333,22 @@ export function ManagerApp({
 
   const previewMove = useCallback(
     (targetFolderId: string) => {
+      if (restoreFallbackEntries) {
+        try {
+          setRestoreFallbackEntries(undefined);
+          setConfirmPlan(
+            operationService.planRestore(
+              restoreFallbackEntries,
+              targetFolderId,
+            ),
+          );
+          setOperationError(undefined);
+        } catch (error) {
+          setOperationError(error instanceof Error ? error.message : String(error));
+        }
+        return;
+      }
+
       const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
       if (!ids || ids.length === 0) {
         return;
@@ -347,7 +366,13 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.records, moveRecord, moveSourceIds, operationService],
+    [
+      data.records,
+      moveRecord,
+      moveSourceIds,
+      operationService,
+      restoreFallbackEntries,
+    ],
   );
 
   const previewQuarantine = useCallback(
@@ -421,6 +446,16 @@ export function ManagerApp({
   }, [confirmPlan, data, operationService, resolvedOperationStorage]);
 
   const writableMoveTargets = useMemo(() => {
+    if (restoreFallbackEntries) {
+      return model.searchableRecords.filter(
+        (record) =>
+          record.isFolder &&
+          !record.isRoot &&
+          !record.isUnmodifiable &&
+          !isNativeQuarantineFolder(record, data.records),
+      );
+    }
+
     const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
     if (!ids || ids.length === 0) {
       return [];
@@ -442,7 +477,7 @@ export function ManagerApp({
         !record.isUnmodifiable &&
         !blockedIds.has(record.id),
     );
-  }, [model, moveRecord, moveSourceIds]);
+  }, [data.records, model, moveRecord, moveSourceIds, restoreFallbackEntries]);
 
   const selectedRecords = useMemo(
     () =>
@@ -460,7 +495,10 @@ export function ManagerApp({
     ? model.recordById.get(resolvedFolderId)
     : undefined;
   const isQuarantineFolder =
-    currentFolder?.title === QUARANTINE_FOLDER_TITLE;
+    isNativeQuarantineFolder(currentFolder, data.records);
+  const quarantineFolder = data.records.find((record) =>
+    isNativeQuarantineFolder(record, data.records),
+  );
 
   const toggleSelection = useCallback(
     (record: BookmarkRecord, selected: boolean) => {
@@ -489,13 +527,23 @@ export function ManagerApp({
   }, [data.records, operationService, selectedIds]);
 
   const previewBatchRestore = useCallback(() => {
+    const needsFallback = selectedRecoveryEntries.some((entry) => {
+      const parent = model.recordById.get(entry.originalParentId);
+      return !parent?.isFolder;
+    });
+    if (needsFallback) {
+      setRestoreFallbackEntries(selectedRecoveryEntries);
+      setOperationError(undefined);
+      return;
+    }
+
     try {
       setConfirmPlan(operationService.planRestore(selectedRecoveryEntries));
       setOperationError(undefined);
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     }
-  }, [operationService, selectedRecoveryEntries]);
+  }, [model, operationService, selectedRecoveryEntries]);
 
   const bookmarkCount = model.searchableRecords.filter(
     (record) => !record.isFolder,
@@ -592,6 +640,7 @@ export function ManagerApp({
         onSelectionChange={toggleSelection}
         selectedIds={selectedIds}
         isQuarantineFolder={isQuarantineFolder}
+        quarantineFolderId={quarantineFolder?.id}
       />
     );
   }
@@ -730,7 +779,7 @@ export function ManagerApp({
           record={editorState.mode === 'edit' ? editorState.record : undefined}
         />
       )}
-      {(moveRecord || moveSourceIds) && (
+      {(moveRecord || moveSourceIds || restoreFallbackEntries) && (
         <MoveBookmarkDialog
           folders={writableMoveTargets}
           model={model}

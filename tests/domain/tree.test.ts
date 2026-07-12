@@ -110,6 +110,26 @@ describe('flattenBookmarkTree', () => {
     });
   });
 
+  it('infers standard root folder types when the browser API omits folderType', () => {
+    const records = flattenBookmarkTree([
+      {
+        id: 'root',
+        title: '',
+        children: [
+          { id: 'bar', parentId: 'root', index: 0, title: 'Bookmarks Bar', children: [] },
+          { id: 'other', parentId: 'root', index: 1, title: 'Other Bookmarks', children: [] },
+          { id: 'mobile', parentId: 'root', index: 2, title: 'Mobile Bookmarks', children: [] },
+        ],
+      },
+    ]);
+    const byId = new Map(records.map((record) => [record.id, record]));
+
+    expect(byId.get('bar')?.folderType).toBe('bookmarks-bar');
+    expect(byId.get('bar')?.isBookmarkBar).toBe(true);
+    expect(byId.get('other')?.folderType).toBe('other');
+    expect(byId.get('mobile')?.folderType).toBe('mobile');
+  });
+
   it('marks the bookmark bar by folder type and propagates the flag to every descendant', () => {
     const records = flattenBookmarkTree(bookmarkTreeFixture);
     const byId = new Map(records.map((record) => [record.id, record]));

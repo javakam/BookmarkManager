@@ -139,7 +139,26 @@ export function findOtherBookmarksFolder(
 export function findExactQuarantineFolder(
   records: readonly BookmarkRecord[],
 ): BookmarkRecord | undefined {
+  const otherFolder = findOtherBookmarksFolder(records);
   return records.find(
-    (record) => record.isFolder && record.title === QUARANTINE_FOLDER_TITLE,
+    (record) =>
+      record.isFolder &&
+      record.title === QUARANTINE_FOLDER_TITLE &&
+      record.parentId === otherFolder?.id,
+  );
+}
+
+export function isQuarantineFolder(
+  record: BookmarkRecord | undefined,
+  records: readonly BookmarkRecord[],
+): boolean {
+  if (!record) {
+    return false;
+  }
+  const otherFolder = findOtherBookmarksFolder(records);
+  return (
+    record.isFolder &&
+    record.title === QUARANTINE_FOLDER_TITLE &&
+    record.parentId === otherFolder?.id
   );
 }

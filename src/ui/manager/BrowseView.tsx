@@ -16,6 +16,7 @@ interface BrowseViewProps {
   readonly highlightedId?: string;
   readonly selectedIds?: ReadonlySet<string>;
   readonly isQuarantineFolder?: boolean;
+  readonly quarantineFolderId?: string;
   readonly onCreateBookmark?: (parentId: string) => void;
   readonly onCreateFolder?: (parentId: string) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
@@ -32,6 +33,7 @@ export function BrowseView({
   highlightedId,
   selectedIds,
   isQuarantineFolder = false,
+  quarantineFolderId,
   onCreateBookmark,
   onCreateFolder,
   onEdit,
@@ -137,7 +139,7 @@ export function BrowseView({
                 selectable={
                   !record.isRoot &&
                   !record.isUnmodifiable &&
-                  record.title !== '待删除（书签工作台）' &&
+                  record.id !== quarantineFolderId &&
                   (!record.isFolder || !isQuarantineFolder)
                 }
                 selected={selectedIds?.has(record.id) ?? false}

@@ -4,6 +4,7 @@ import {
   compareBookmarkFingerprint,
   createBookmarkFingerprint,
   findExactQuarantineFolder,
+  isQuarantineFolder,
   findOtherBookmarksFolder,
   sortRecordsInBrowserOrder,
   validateMoveTarget,
@@ -52,6 +53,7 @@ type MovePlan = PlanBase & {
   readonly sources: readonly BookmarkFingerprint[];
   readonly target: BookmarkFingerprint;
   readonly index?: number;
+  readonly siblings?: readonly BookmarkFingerprint[];
 };
 
 type QuarantinePlan = PlanBase & {
@@ -245,6 +247,27 @@ function resolveRestoreIndex(
   return entry.originalIndex;
 }
 
+function compareSiblingSnapshots(
+  records: readonly BookmarkRecord[],
+  parentId: string,
+  expectedSiblings: readonly BookmarkFingerprint[],
+): boolean {
+  const currentSiblings = records
+    .filter((record) => record.parentId === parentId)
+    .sort((left, right) => left.index - right.index || left.id.localeCompare(right.id));
+  if (currentSiblings.length !== expectedSiblings.length) {
+    return false;
+  }
+  return currentSiblings.every((record, index) => {
+    const expected = expectedSiblings[index];
+    return (
+      expected !== undefined &&
+      record.id === expected.id &&
+      compareBookmarkFingerprint(expected, createBookmarkFingerprint(record))
+    );
+  });
+}
+
 export function createBookmarkOperationService({
   repository,
   storage,
@@ -265,7 +288,7 @@ export function createBookmarkOperationService({
     const storedId = await storage.loadQuarantineFolderId();
     const byId = recordsById(records);
     const stored = storedId ? byId.get(storedId) : undefined;
-    if (stored?.isFolder && stored.title === QUARANTINE_FOLDER_TITLE) {
+    if (stored && isQuarantineFolder(stored, records)) {
       return stored.id;
     }
 
@@ -344,8 +367,19 @@ export function createBookmarkOperationService({
       };
     },
     planReorder(records, id, destination) {
+      const source = requireRecord(records, id);
+      if (source.parentId !== destination.parentId) {
+        throw new Error('只能在同一层级调整文件夹顺序');
+      }
       const plan = this.planMove(records, [id], destination);
-      return { ...plan, kind: 'reorder' };
+      const siblings = records
+        .filter((record) => record.parentId === destination.parentId)
+        .sort((left, right) => left.index - right.index || left.id.localeCompare(right.id));
+      return {
+        ...plan,
+        kind: 'reorder',
+        siblings: siblings.map(createBookmarkFingerprint),
+      };
     },
     planQuarantine(records, ids) {
       const sources = collectSources(records, ids);
@@ -373,10 +407,9 @@ export function createBookmarkOperationService({
       };
     },
     async execute(plan) {
-      const records = await readFreshRecords();
-      const byId = recordsById(records);
-
       if (plan.kind === 'create-bookmark') {
+        const records = await readFreshRecords();
+        const byId = recordsById(records);
         if (!requireCurrentFingerprint(byId, plan.parent)) {
           return {
             kind: plan.kind,
@@ -407,6 +440,8 @@ export function createBookmarkOperationService({
       }
 
       if (plan.kind === 'create-folder') {
+        const records = await readFreshRecords();
+        const byId = recordsById(records);
         if (!requireCurrentFingerprint(byId, plan.parent)) {
           return {
             kind: plan.kind,
@@ -436,6 +471,8 @@ export function createBookmarkOperationService({
       }
 
       if (plan.kind === 'update') {
+        const records = await readFreshRecords();
+        const byId = recordsById(records);
         if (!requireCurrentFingerprint(byId, plan.source)) {
           return {
             kind: plan.kind,
@@ -461,19 +498,31 @@ export function createBookmarkOperationService({
       }
 
       if (plan.kind === 'move' || plan.kind === 'reorder') {
-        if (!requireCurrentFingerprint(byId, plan.target)) {
-          return {
-            kind: plan.kind,
-            results: plan.sources.map((source) => ({
+        const results: BookmarkOperationResult[] = [];
+        for (const source of plan.sources) {
+          const records = await readFreshRecords();
+          const byId = recordsById(records);
+          if (!requireCurrentFingerprint(byId, plan.target)) {
+            results.push({
               id: source.id,
               status: 'conflict',
               message: CONFLICT_MESSAGE,
-            })),
-          };
-        }
-        const results: BookmarkOperationResult[] = [];
-        for (const source of plan.sources) {
+            });
+            continue;
+          }
           if (!requireCurrentFingerprint(byId, source)) {
+            results.push({
+              id: source.id,
+              status: 'conflict',
+              message: CONFLICT_MESSAGE,
+            });
+            continue;
+          }
+          if (
+            plan.kind === 'reorder' &&
+            plan.siblings &&
+            !compareSiblingSnapshots(records, plan.target.id, plan.siblings)
+          ) {
             results.push({
               id: source.id,
               status: 'conflict',
@@ -499,17 +548,20 @@ export function createBookmarkOperationService({
       }
 
       if (plan.kind === 'quarantine') {
-        let quarantineFolderId: string;
-        try {
-          quarantineFolderId = await ensureQuarantineFolder(records);
-        } catch (error) {
-          return {
-            kind: plan.kind,
-            results: plan.sources.map((source) => createFailure(source.id, error)),
-          };
-        }
         const results: BookmarkOperationResult[] = [];
+        let knownQuarantineFolderId: string | undefined;
         for (const source of plan.sources) {
+          const records = await readFreshRecords();
+          const byId = recordsById(records);
+          let quarantineFolderId: string;
+          try {
+            quarantineFolderId =
+              knownQuarantineFolderId ?? (await ensureQuarantineFolder(records));
+            knownQuarantineFolderId = quarantineFolderId;
+          } catch (error) {
+            results.push(createFailure(source.id, error));
+            continue;
+          }
           const current = requireCurrentFingerprint(byId, source);
           if (!current) {
             results.push({
@@ -520,10 +572,15 @@ export function createBookmarkOperationService({
             continue;
           }
           try {
-            await repository.move(source.id, { parentId: quarantineFolderId });
             await storage.upsertRecoveryEntry(
               recoveryAnchorFor(current, records, now()),
             );
+            try {
+              await repository.move(source.id, { parentId: quarantineFolderId });
+            } catch (error) {
+              await storage.removeRecoveryEntry(source.id).catch(() => undefined);
+              throw error;
+            }
             results.push({
               id: source.id,
               status: 'success',
@@ -539,6 +596,8 @@ export function createBookmarkOperationService({
       if (plan.kind === 'restore') {
         const results: BookmarkOperationResult[] = [];
         for (const entry of plan.entries) {
+          const records = await readFreshRecords();
+          const byId = recordsById(records);
           const parentId =
             byId.has(entry.originalParentId)
               ? entry.originalParentId

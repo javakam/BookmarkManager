@@ -12,8 +12,17 @@ export function flattenBookmarkTree(
     depth: number,
     ancestorIsUnmodifiable: boolean,
     ancestorIsBookmarkBar: boolean,
+    parentIsSyntheticRoot: boolean,
   ): void {
-    const folderType = node.folderType ?? 'unknown';
+    const folderType =
+      node.folderType ??
+      (parentIsSyntheticRoot && fallbackIndex === 0
+        ? 'bookmarks-bar'
+        : parentIsSyntheticRoot && fallbackIndex === 1
+          ? 'other'
+          : parentIsSyntheticRoot && fallbackIndex === 2
+            ? 'mobile'
+            : 'unknown');
     const isFolder = !node.url;
     const isUnmodifiable =
       ancestorIsUnmodifiable || node.unmodifiable !== undefined;
@@ -37,6 +46,8 @@ export function flattenBookmarkTree(
     });
 
     const childPath = isFolder ? [...path, node.title] : path;
+    const isSyntheticRoot =
+      node.parentId === undefined && isFolder && node.title.trim() === '';
     node.children?.forEach((child, childIndex) => {
       visit(
         child,
@@ -45,12 +56,13 @@ export function flattenBookmarkTree(
         depth + 1,
         isUnmodifiable,
         isBookmarkBar,
+        isSyntheticRoot,
       );
     });
   }
 
   nodes.forEach((node, index) => {
-    visit(node, index, [], 0, false, false);
+    visit(node, index, [], 0, false, false, false);
   });
 
   return records;

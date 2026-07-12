@@ -199,4 +199,35 @@ describe('batch bookmark operations', () => {
       index: 0,
     });
   });
+
+  it('asks for a fallback folder before restoring when the original parent is missing', async () => {
+    const storage = createMemoryBookmarkOperationStorage();
+    await storage.saveQuarantineFolderId('quarantine');
+    await storage.upsertRecoveryEntry({
+      nodeId: 'deleted-a',
+      originalParentId: 'missing-parent',
+      originalIndex: 0,
+      quarantinedAt: 1,
+    });
+    const { repository } = await renderReady(storage);
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 其他书签' }));
+    fireEvent.click(within(sidebar).getByRole('button', { name: '待删除（书签工作台）' }));
+    await screen.findByRole('heading', { name: '待删除（书签工作台）' });
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Deleted A' }));
+    fireEvent.click(screen.getByRole('button', { name: '恢复' }));
+
+    const fallback = await screen.findByRole('dialog', { name: '移动到' });
+    fireEvent.change(within(fallback).getByLabelText('目标文件夹'), {
+      target: { value: 'bar' },
+    });
+    fireEvent.click(within(fallback).getByRole('button', { name: '预览' }));
+    await confirm();
+
+    expect(repository.move).toHaveBeenCalledWith('deleted-a', {
+      parentId: 'bar',
+      index: 0,
+    });
+  });
 });
