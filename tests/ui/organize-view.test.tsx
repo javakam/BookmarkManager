@@ -27,7 +27,10 @@ import type {
   BookmarkRecord,
   BrowserBookmarkNode,
 } from '../../src/domain/bookmarks';
-import type { BookmarkRepository } from '../../src/platform/bookmark-repository';
+import type {
+  BookmarkRepository,
+  BookmarkRepositoryChange,
+} from '../../src/platform/bookmark-repository';
 import {
   useOrganizeAnalysis,
   type OrganizeAnalyzers,
@@ -127,7 +130,9 @@ function organizeTree(extraTitle = ''): BrowserBookmarkNode[] {
 function repositoryStub(
   getTree: BookmarkRepository['getTree'],
 ): BookmarkRepository & { emitChanged: () => void } {
-  let listener: (() => void) | undefined;
+  let listener:
+    | ((change: BookmarkRepositoryChange) => void)
+    | undefined;
   return {
     getTree,
     createBookmark: vi.fn(),
@@ -142,7 +147,7 @@ function repositoryStub(
       };
     },
     emitChanged() {
-      listener?.();
+      listener?.('changed');
     },
   };
 }

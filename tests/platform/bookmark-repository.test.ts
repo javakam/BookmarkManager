@@ -4,6 +4,7 @@ import type { BrowserBookmarkNode } from '../../src/domain/bookmarks';
 import {
   createChromeBookmarkRepository,
   type BookmarkRepository,
+  type BookmarkRepositoryChange,
 } from '../../src/platform/bookmark-repository';
 import type {
   BrowserBookmarkEvent,
@@ -304,7 +305,48 @@ describe('createChromeBookmarkRepository', () => {
     );
   });
 
-  it('subscribes to every mutation event and fully detaches on unsubscribe', () => {
+  it('reports every ordinary browser mutation as changed', () => {
+    const api = new BookmarksApiStub();
+    const repository = createChromeBookmarkRepository(api);
+    const changes: BookmarkRepositoryChange[] = [];
+
+    const unsubscribe = repository.onChanged((change) => {
+      changes.push(change);
+    });
+
+    api.onCreated.fire('created', { id: 'created', title: 'Created' });
+    api.onRemoved.fire('removed', { parentId: 'root', index: 0 });
+    api.onChanged.fire('changed', { title: 'Changed' });
+    api.onMoved.fire('moved', { parentId: 'target', index: 0 });
+    api.onChildrenReordered.fire('root', { childIds: ['changed'] });
+
+    expect(changes).toEqual([
+      'changed',
+      'changed',
+      'changed',
+      'changed',
+      'changed',
+    ]);
+    unsubscribe();
+  });
+
+  it('reports browser import lifecycle events distinctly', () => {
+    const api = new BookmarksApiStub();
+    const repository = createChromeBookmarkRepository(api);
+    const changes: BookmarkRepositoryChange[] = [];
+
+    const unsubscribe = repository.onChanged((change) => {
+      changes.push(change);
+    });
+
+    api.onImportBegan.fire();
+    api.onImportEnded.fire();
+
+    expect(changes).toEqual(['import-began', 'import-ended']);
+    unsubscribe();
+  });
+
+  it('subscribes to every browser event and fully detaches on unsubscribe', () => {
     const api = new BookmarksApiStub();
     const repository = createChromeBookmarkRepository(api);
     const subscribedEvents = [
@@ -313,6 +355,7 @@ describe('createChromeBookmarkRepository', () => {
       api.onChanged,
       api.onMoved,
       api.onChildrenReordered,
+      api.onImportBegan,
       api.onImportEnded,
     ];
     let notificationCount = 0;
@@ -322,9 +365,8 @@ describe('createChromeBookmarkRepository', () => {
     });
 
     expect(subscribedEvents.map((event) => event.size)).toEqual([
-      1, 1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1, 1, 1,
     ]);
-    expect(api.onImportBegan.size).toBe(0);
 
     api.onCreated.fire('created', { id: 'created', title: 'Created' });
     api.onRemoved.fire('removed', { parentId: 'root', index: 0 });
@@ -332,11 +374,12 @@ describe('createChromeBookmarkRepository', () => {
     api.onMoved.fire('moved', { parentId: 'target', index: 0 });
     api.onChildrenReordered.fire('root', { childIds: ['changed'] });
     api.onImportEnded.fire();
-    expect(notificationCount).toBe(6);
+    api.onImportBegan.fire();
+    expect(notificationCount).toBe(7);
 
     unsubscribe();
     expect(subscribedEvents.map((event) => event.size)).toEqual([
-      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0,
     ]);
 
     expect(() => {
@@ -344,11 +387,11 @@ describe('createChromeBookmarkRepository', () => {
         event.fire('late event after unmount');
       }
     }).not.toThrow();
-    expect(notificationCount).toBe(6);
+    expect(notificationCount).toBe(7);
 
     unsubscribe();
     expect(subscribedEvents.map((event) => event.size)).toEqual([
-      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0,
     ]);
   });
 });

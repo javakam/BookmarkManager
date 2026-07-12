@@ -5,6 +5,11 @@ import {
   type BrowserBookmarksApi,
 } from './browser';
 
+export type BookmarkRepositoryChange =
+  | 'changed'
+  | 'import-began'
+  | 'import-ended';
+
 export interface BookmarkRepository {
   getTree(): Promise<BrowserBookmarkNode[]>;
   createBookmark(input: {
@@ -27,7 +32,9 @@ export interface BookmarkRepository {
     destination: { parentId: string; index?: number },
   ): Promise<BrowserBookmarkNode>;
   remove(id: string): Promise<void>;
-  onChanged(listener: () => void): () => void;
+  onChanged(
+    listener: (change: BookmarkRepositoryChange) => void,
+  ): () => void;
 }
 
 function mapBrowserBookmarkNode(
@@ -85,35 +92,48 @@ export function createChromeBookmarkRepository(
     },
     onChanged(listener) {
       const resolvedApi = resolveApi();
-      const events = [
+      const ordinaryEvents = [
         resolvedApi.onCreated,
         resolvedApi.onRemoved,
         resolvedApi.onChanged,
         resolvedApi.onMoved,
         resolvedApi.onChildrenReordered,
-        resolvedApi.onImportEnded,
       ].filter(
         (event): event is BrowserBookmarkEvent => event !== undefined,
       );
       let isActive = true;
       const handleChange = () => {
         if (isActive) {
-          listener();
+          listener('changed');
+        }
+      };
+      const handleImportBegan = () => {
+        if (isActive) {
+          listener('import-began');
+        }
+      };
+      const handleImportEnded = () => {
+        if (isActive) {
+          listener('import-ended');
         }
       };
 
-      for (const event of events) {
+      for (const event of ordinaryEvents) {
         event.addListener(handleChange);
       }
+      resolvedApi.onImportBegan?.addListener(handleImportBegan);
+      resolvedApi.onImportEnded?.addListener(handleImportEnded);
 
       return () => {
         if (!isActive) {
           return;
         }
         isActive = false;
-        for (const event of events) {
+        for (const event of ordinaryEvents) {
           event.removeListener(handleChange);
         }
+        resolvedApi.onImportBegan?.removeListener(handleImportBegan);
+        resolvedApi.onImportEnded?.removeListener(handleImportEnded);
       };
     },
   };

@@ -41,6 +41,7 @@ export interface BrowserBookmarksApi {
   onChanged?: BrowserBookmarkEvent;
   onMoved?: BrowserBookmarkEvent;
   onChildrenReordered?: BrowserBookmarkEvent;
+  onImportBegan?: BrowserBookmarkEvent;
   onImportEnded?: BrowserBookmarkEvent;
 }
 

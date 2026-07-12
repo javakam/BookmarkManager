@@ -15,7 +15,10 @@ import type { SearchResult } from '../../src/app/bookmark-index';
 import { ManagerApp } from '../../src/ui/manager/ManagerApp';
 import { SearchResults } from '../../src/ui/manager/SearchResults';
 import type { BrowserBookmarkNode } from '../../src/domain/bookmarks';
-import type { BookmarkRepository } from '../../src/platform/bookmark-repository';
+import type {
+  BookmarkRepository,
+  BookmarkRepositoryChange,
+} from '../../src/platform/bookmark-repository';
 
 afterEach(cleanup);
 
@@ -227,7 +230,9 @@ function pagedBookmarkTree(): BrowserBookmarkNode[] {
 function repositoryStub(
   getTree: BookmarkRepository['getTree'],
 ): BookmarkRepository & { emitChanged: () => void } {
-  let listener: (() => void) | undefined;
+  let listener:
+    | ((change: BookmarkRepositoryChange) => void)
+    | undefined;
   return {
     getTree,
     createBookmark: vi.fn(),
@@ -242,7 +247,7 @@ function repositoryStub(
       };
     },
     emitChanged() {
-      listener?.();
+      listener?.('changed');
     },
   };
 }
