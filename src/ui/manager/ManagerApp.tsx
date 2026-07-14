@@ -526,6 +526,23 @@ export function ManagerApp({
     }
   }, [data.records, operationService, selectedIds]);
 
+  const previewOrganizeQuarantine = useCallback(
+    (records: readonly BookmarkRecord[]) => {
+      try {
+        setConfirmPlan(
+          operationService.planQuarantine(
+            data.records,
+            records.map(({ id }) => id),
+          ),
+        );
+        setOperationError(undefined);
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [data.records, operationService],
+  );
+
   const previewBatchRestore = useCallback(() => {
     const needsFallback = selectedRecoveryEntries.some((entry) => {
       const parent = model.recordById.get(entry.originalParentId);
@@ -589,7 +606,11 @@ export function ManagerApp({
           analysis={organizeAnalysis.analysis}
           onLocateBookmark={locate}
           onLocateFolder={locateFolder}
+          onMoveSelection={(records) =>
+            setMoveSourceIds(records.map(({ id }) => id))
+          }
           onOpen={(record) => void handleOpen(record)}
+          onQuarantineSelection={previewOrganizeQuarantine}
         />
       );
     } else if (organizeAnalysis.status === 'error') {
@@ -724,7 +745,10 @@ export function ManagerApp({
           activeFolderId={resolvedFolderId}
           expandedFolderIds={expandedFolderIds}
           model={model}
-          onSelect={navigate}
+          onSelect={(folderId) => {
+            navigate(folderId);
+            setView('browse');
+          }}
           onReorder={previewFolderReorder}
           onToggle={(folderId) => {
             setExpandedFolderIds((current) => {

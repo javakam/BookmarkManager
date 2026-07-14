@@ -459,7 +459,7 @@ describe('ManagerApp browse shell', () => {
     ).toBeTruthy();
   });
 
-  it('previews and executes same-level folder ordering through the sidebar controls', async () => {
+  it('previews and executes same-level folder ordering by dragging the whole row without reorder icons', async () => {
     const tree: BrowserBookmarkNode[] = [
       {
         id: 'root',
@@ -502,7 +502,24 @@ describe('ManagerApp browse shell', () => {
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
 
     fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
-    fireEvent.click(within(sidebar).getByRole('button', { name: '下移 Folder A' }));
+    const sourceRow = within(sidebar)
+      .getByRole('button', { name: 'Folder A' })
+      .closest('.folder-tree__row') as HTMLElement;
+    const targetRow = within(sidebar)
+      .getByRole('button', { name: 'Folder B' })
+      .closest('.folder-tree__row') as HTMLElement;
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: 'none',
+      getData: (type: string) => data.get(type) ?? '',
+      setData: (type: string, value: string) => data.set(type, value),
+    };
+
+    expect(sourceRow.getAttribute('draggable')).toBe('true');
+    expect(within(sidebar).queryByRole('button', { name: /拖动排序|上移|下移/ })).toBeNull();
+    fireEvent.dragStart(sourceRow, { dataTransfer });
+    fireEvent.dragOver(targetRow, { clientY: 1, dataTransfer });
+    fireEvent.drop(targetRow, { clientY: 1, dataTransfer });
 
     expect(await screen.findByText('将调整 1 个文件夹顺序')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
@@ -512,7 +529,12 @@ describe('ManagerApp browse shell', () => {
       parentId: 'bar',
       index: 2,
     });
-    expect(within(sidebar).queryByRole('button', { name: /下移 书签栏/ })).toBeNull();
+    expect(
+      within(sidebar)
+        .getByRole('button', { name: '书签栏' })
+        .closest('.folder-tree__row')
+        ?.getAttribute('draggable'),
+    ).toBe('false');
   });
 });
 
@@ -527,6 +549,9 @@ describe('ManagerApp settings', () => {
     expect(sidebar.querySelector('.folder-tree__count')).toBeNull();
 
     fireEvent.click(within(sidebar).getByRole('button', { name: '设置' }));
+    expect(
+      within(sidebar).getByRole('list', { name: '书签目录' }),
+    ).toBeTruthy();
     const toggle = await screen.findByRole('checkbox', {
       name: '显示目录书签数量',
     });
@@ -542,6 +567,23 @@ describe('ManagerApp settings', () => {
     expect(
       await within(sidebar).findByLabelText('直属 2，合计 3'),
     ).toBeTruthy();
+  });
+
+  it('keeps the native folder tree visible in organize and returns to browse when a folder is selected', async () => {
+    await renderReady(managerTree());
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: '整理' }));
+    expect(
+      within(sidebar).getByRole('list', { name: '书签目录' }),
+    ).toBeTruthy();
+    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Folder A' }));
+
+    expect(await screen.findByRole('heading', { name: 'Folder A' })).toBeTruthy();
+    expect(
+      within(sidebar).getByRole('button', { name: '浏览' }).getAttribute('aria-current'),
+    ).toBe('page');
   });
 
   it('shows native source, automatic state, last refresh, and a shared manual refresh without analysis', async () => {

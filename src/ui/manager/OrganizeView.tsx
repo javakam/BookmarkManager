@@ -1,5 +1,5 @@
 import { ExternalLink, Folder, LocateFixed } from 'lucide-react';
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 
 import type { OrganizeAnalysis } from '../../app/use-organize-analysis';
 import { getBookmarkDisplayInfo } from '../../app/bookmark-view-model';
@@ -74,6 +74,8 @@ export interface OrganizeViewProps {
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocateBookmark: (record: BookmarkRecord) => void;
   readonly onLocateFolder: (folder: BookmarkRecord) => void;
+  readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
+  readonly onQuarantineSelection?: (records: readonly BookmarkRecord[]) => void;
 }
 
 function recordPath(record: BookmarkRecord): string {
@@ -88,15 +90,32 @@ function MemberRow({
   record,
   onOpen,
   onLocate,
+  selected,
+  onSelectionChange,
 }: {
   readonly record: BookmarkRecord;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
+  readonly selected?: boolean;
+  readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
 }) {
   const display = getBookmarkDisplayInfo(record);
   const path = recordPath(record);
   return (
-    <li className="organize-member-row">
+    <li
+      className={`organize-member-row${
+        onSelectionChange ? ' organize-member-row--selectable' : ''
+      }`}
+    >
+      {onSelectionChange && (
+        <input
+          aria-label={`选择 ${display.displayTitle}`}
+          checked={selected}
+          className="organize-member-select"
+          onChange={(event) => onSelectionChange(record, event.target.checked)}
+          type="checkbox"
+        />
+      )}
       <span className="organize-member-icon" aria-hidden="true">
         <ExternalLink size={16} />
       </span>
@@ -160,17 +179,28 @@ function BookmarkMemberList({
   members,
   onOpen,
   onLocate,
+  selectedIds,
+  onSelectionChange,
 }: {
   readonly members: readonly BookmarkRecord[];
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
+  readonly selectedIds?: ReadonlySet<string>;
+  readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
 }) {
   const [limit, setLimit] = useState(MEMBER_PAGE_SIZE);
   return (
     <>
       <ul className="organize-member-list">
         {members.slice(0, limit).map((record) => (
-          <MemberRow key={record.id} onLocate={onLocate} onOpen={onOpen} record={record} />
+          <MemberRow
+            key={record.id}
+            onLocate={onLocate}
+            onOpen={onOpen}
+            onSelectionChange={onSelectionChange}
+            record={record}
+            selected={selectedIds?.has(record.id)}
+          />
         ))}
       </ul>
       {limit < members.length && (
@@ -184,23 +214,59 @@ function DuplicateResult({
   group,
   onOpen,
   onLocate,
+  selectedIds,
+  onSelectionChange,
+  onMoveSelection,
+  onQuarantineSelection,
 }: {
   readonly group: DuplicateGroup;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
+  readonly selectedIds: ReadonlySet<string>;
+  readonly onSelectionChange: (record: BookmarkRecord, selected: boolean) => void;
+  readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
+  readonly onQuarantineSelection?: (records: readonly BookmarkRecord[]) => void;
 }) {
   const evidence = uniqueLabels(
     group.evidence.map(({ type }) => DUPLICATE_EVIDENCE_LABELS[type]),
   );
+  const selectedMembers = group.members.filter((record) => selectedIds.has(record.id));
   return (
     <li className="organize-group">
-      <GroupHeader labels={[
-        CLASSIFICATION_LABELS[group.classification],
-        DUPLICATE_CONFIDENCE_LABELS[group.confidence],
-        DUPLICATE_REASON_LABELS[group.reason],
-        ...evidence,
-      ]} />
-      <BookmarkMemberList members={group.members} onLocate={onLocate} onOpen={onOpen} />
+      <div className="organize-group-toolbar">
+        <GroupHeader labels={[
+          CLASSIFICATION_LABELS[group.classification],
+          DUPLICATE_CONFIDENCE_LABELS[group.confidence],
+          DUPLICATE_REASON_LABELS[group.reason],
+          ...evidence,
+        ]} />
+        <div className="organize-group-actions">
+          <span>{selectedMembers.length} 项已选择</span>
+          <button
+            className="command-button command-button--secondary"
+            disabled={selectedMembers.length === 0}
+            onClick={() => onMoveSelection?.(selectedMembers)}
+            type="button"
+          >
+            移动选中项
+          </button>
+          <button
+            className="command-button command-button--secondary"
+            disabled={selectedMembers.length === 0}
+            onClick={() => onQuarantineSelection?.(selectedMembers)}
+            type="button"
+          >
+            选中项移到待删除
+          </button>
+        </div>
+      </div>
+      <BookmarkMemberList
+        members={group.members}
+        onLocate={onLocate}
+        onOpen={onOpen}
+        onSelectionChange={onSelectionChange}
+        selectedIds={selectedIds}
+      />
     </li>
   );
 }
@@ -309,6 +375,8 @@ export function OrganizeView({
   onOpen,
   onLocateBookmark,
   onLocateFolder,
+  onMoveSelection,
+  onQuarantineSelection,
 }: OrganizeViewProps) {
   const [activeTab, setActiveTab] = useState<OrganizeTab>('duplicates');
   const [limits, setLimits] = useState<Record<OrganizeTab, number>>({
@@ -316,6 +384,23 @@ export function OrganizeView({
     similar: PAGE_SIZE,
     mirrors: PAGE_SIZE,
   });
+  const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  useEffect(() => {
+    setSelectedDuplicateIds(new Set());
+  }, [analysis]);
+  const changeDuplicateSelection = (record: BookmarkRecord, selected: boolean) => {
+    setSelectedDuplicateIds((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(record.id);
+      } else {
+        next.delete(record.id);
+      }
+      return next;
+    });
+  };
   const similarGroups: SimilarityGroup[] = [
     ...analysis.similar.titleConflictGroups,
     ...analysis.similar.pairs,
@@ -389,7 +474,16 @@ export function OrganizeView({
             <>
               <ul className="organize-group-list">
                 {analysis.duplicates.groups.slice(0, limits.duplicates).map((group) => (
-                  <DuplicateResult group={group} key={group.id} onLocate={onLocateBookmark} onOpen={onOpen} />
+                  <DuplicateResult
+                    group={group}
+                    key={group.id}
+                    onLocate={onLocateBookmark}
+                    onMoveSelection={onMoveSelection}
+                    onOpen={onOpen}
+                    onQuarantineSelection={onQuarantineSelection}
+                    onSelectionChange={changeDuplicateSelection}
+                    selectedIds={selectedDuplicateIds}
+                  />
                 ))}
               </ul>
               {limits.duplicates < analysis.duplicates.groups.length && (

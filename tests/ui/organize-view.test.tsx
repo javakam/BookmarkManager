@@ -257,7 +257,7 @@ function AnalysisStatus({
 }
 
 describe('OrganizeView through ManagerApp', () => {
-  it('shows real exact duplicates with Chinese evidence, both paths, and no destructive controls', async () => {
+  it('shows real exact duplicates with Chinese evidence and actionable selection controls', async () => {
     const repository = repositoryStub(vi.fn().mockResolvedValue(organizeTree()));
     render(<ManagerApp openUrl={vi.fn()} repository={repository} />);
     await screen.findByRole('heading', { name: '书签栏' });
@@ -269,9 +269,29 @@ describe('OrganizeView through ManagerApp', () => {
     expect(screen.getAllByText('书签栏 / Folder A')).not.toHaveLength(0);
     expect(screen.getAllByText('其他书签 / Folder B')).not.toHaveLength(0);
     expect(screen.getAllByText('https://same.example.test/full/path?keep=1#section')).toHaveLength(3);
-    expect(screen.queryByRole('checkbox')).toBeNull();
-    expect(screen.queryByText(/删除|隔离|保留/)).toBeNull();
+    expect(screen.getAllByRole('checkbox').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByRole('button', { name: '移动选中项' })).not.toHaveLength(0);
+    expect(screen.getAllByRole('button', { name: '选中项移到待删除' })).not.toHaveLength(0);
     expect(screen.queryByText('English detail must stay hidden')).toBeNull();
+  });
+
+  it('opens the existing move and quarantine confirmation flows for selected duplicate members', async () => {
+    const repository = repositoryStub(vi.fn().mockResolvedValue(organizeTree()));
+    render(<ManagerApp openUrl={vi.fn()} repository={repository} />);
+    await screen.findByRole('heading', { name: '书签栏' });
+    fireEvent.click(screen.getByRole('button', { name: '整理' }));
+    await screen.findAllByText('确定重复');
+
+    const selected = screen.getAllByRole('checkbox', { name: '选择 Shared Copy' })[0];
+    const duplicateGroup = selected.closest('.organize-group') as HTMLElement;
+    fireEvent.click(selected);
+    fireEvent.click(within(duplicateGroup).getByRole('button', { name: '移动选中项' }));
+    expect(await screen.findByRole('dialog', { name: '移动到' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    fireEvent.click(within(duplicateGroup).getByRole('button', { name: '选中项移到待删除' }));
+    expect(await screen.findByRole('dialog', { name: '确认操作' })).toBeTruthy();
+    expect(screen.getByText('将移到待删除 1 项')).toBeTruthy();
   });
 
   it('keeps three-member title conflicts and three-folder mirrors as complete groups', async () => {
