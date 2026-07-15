@@ -19,6 +19,8 @@ function operationSummary(plan: BookmarkOperationPlan): string {
       return `将移动 ${plan.sources.length} 项`;
     case 'reorder':
       return '将调整 1 个文件夹顺序';
+    case 'delete':
+      return `将永久删除 ${plan.sources.length} 项`;
     case 'quarantine':
       return `将移到待删除 ${plan.sources.length} 项`;
     case 'restore':
@@ -32,7 +34,7 @@ export function ConfirmOperationDialog({
   onCancel,
   onConfirm,
 }: ConfirmOperationDialogProps) {
-  const isQuarantine = plan.kind === 'quarantine';
+  const isDestructive = plan.kind === 'quarantine' || plan.kind === 'delete';
 
   return (
     <div aria-labelledby="confirm-operation-title" aria-modal="true" className="dialog-backdrop" role="dialog">
@@ -41,9 +43,9 @@ export function ConfirmOperationDialog({
           <h2 id="confirm-operation-title">确认操作</h2>
         </header>
         <p className="operation-summary">{operationSummary(plan)}</p>
-        {isQuarantine && (
+        {isDestructive && (
           <p className="operation-note">
-            可恢复
+            {plan.kind === 'delete' ? '删除后无法恢复' : '可恢复'}
           </p>
         )}
         <footer className="dialog-actions">

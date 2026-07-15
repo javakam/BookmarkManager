@@ -1,4 +1,4 @@
-import { ExternalLink, Folder, LocateFixed } from 'lucide-react';
+import { ExternalLink, Folder, LocateFixed, MoveRight, Pencil, Trash2 } from 'lucide-react';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 
 import type { OrganizeAnalysis } from '../../app/use-organize-analysis';
@@ -17,6 +17,7 @@ import type {
   SimilarityPair,
   TitleConflictGroup,
 } from '../../domain/similarity-analyzer';
+import { useItemContextMenu } from './useItemContextMenu';
 
 type OrganizeTab = 'duplicates' | 'similar' | 'mirrors';
 type SimilarityGroup = SimilarityPair | TitleConflictGroup;
@@ -74,8 +75,11 @@ export interface OrganizeViewProps {
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocateBookmark: (record: BookmarkRecord) => void;
   readonly onLocateFolder: (folder: BookmarkRecord) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
   readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
-  readonly onQuarantineSelection?: (records: readonly BookmarkRecord[]) => void;
+  readonly onDeleteSelection?: (records: readonly BookmarkRecord[]) => void;
 }
 
 function recordPath(record: BookmarkRecord): string {
@@ -92,20 +96,34 @@ function MemberRow({
   onLocate,
   selected,
   onSelectionChange,
+  onEdit,
+  onMove,
+  onDelete,
 }: {
   readonly record: BookmarkRecord;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
   readonly selected?: boolean;
   readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
 }) {
   const display = getBookmarkDisplayInfo(record);
   const path = recordPath(record);
+  const context = useItemContextMenu(display.displayTitle, [
+    { label: '打开', onSelect: () => onOpen(record) },
+    { label: '定位', onSelect: () => onLocate(record) },
+    ...(onEdit ? [{ label: '编辑', onSelect: () => onEdit(record) }] : []),
+    ...(onMove ? [{ label: '移动', onSelect: () => onMove(record) }] : []),
+    ...(onDelete ? [{ label: '删除', onSelect: () => onDelete(record), danger: true }] : []),
+  ]);
   return (
     <li
       className={`organize-member-row${
         onSelectionChange ? ' organize-member-row--selectable' : ''
       }`}
+      onContextMenu={context.onContextMenu}
     >
       {onSelectionChange && (
         <input
@@ -135,6 +153,9 @@ function MemberRow({
         >
           <ExternalLink aria-hidden="true" size={17} />
         </button>
+        {onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(record)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
+        {onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(record)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
+        {onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(record)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
         <button
           aria-label={`定位 ${display.displayTitle}`}
           className="icon-button"
@@ -145,6 +166,7 @@ function MemberRow({
           <LocateFixed aria-hidden="true" size={17} />
         </button>
       </span>
+      {context.contextMenu}
     </li>
   );
 }
@@ -181,12 +203,18 @@ function BookmarkMemberList({
   onLocate,
   selectedIds,
   onSelectionChange,
+  onEdit,
+  onMove,
+  onDelete,
 }: {
   readonly members: readonly BookmarkRecord[];
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
   readonly selectedIds?: ReadonlySet<string>;
   readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
 }) {
   const [limit, setLimit] = useState(MEMBER_PAGE_SIZE);
   return (
@@ -198,6 +226,9 @@ function BookmarkMemberList({
             onLocate={onLocate}
             onOpen={onOpen}
             onSelectionChange={onSelectionChange}
+            onEdit={onEdit}
+            onMove={onMove}
+            onDelete={onDelete}
             record={record}
             selected={selectedIds?.has(record.id)}
           />
@@ -217,7 +248,10 @@ function DuplicateResult({
   selectedIds,
   onSelectionChange,
   onMoveSelection,
-  onQuarantineSelection,
+  onDeleteSelection,
+  onEdit,
+  onMove,
+  onDelete,
 }: {
   readonly group: DuplicateGroup;
   readonly onOpen: (record: BookmarkRecord) => void;
@@ -225,12 +259,14 @@ function DuplicateResult({
   readonly selectedIds: ReadonlySet<string>;
   readonly onSelectionChange: (record: BookmarkRecord, selected: boolean) => void;
   readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
-  readonly onQuarantineSelection?: (records: readonly BookmarkRecord[]) => void;
+  readonly onDeleteSelection?: (records: readonly BookmarkRecord[]) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
 }) {
   const evidence = uniqueLabels(
     group.evidence.map(({ type }) => DUPLICATE_EVIDENCE_LABELS[type]),
   );
-  const selectedMembers = group.members.filter((record) => selectedIds.has(record.id));
   return (
     <li className="organize-group">
       <div className="organize-group-toolbar">
@@ -240,32 +276,14 @@ function DuplicateResult({
           DUPLICATE_REASON_LABELS[group.reason],
           ...evidence,
         ]} />
-        <div className="organize-group-actions">
-          <span>{selectedMembers.length} 项已选择</span>
-          <button
-            className="command-button command-button--secondary"
-            disabled={selectedMembers.length === 0}
-            onClick={() => onMoveSelection?.(selectedMembers)}
-            type="button"
-          >
-            移动选中项
-          </button>
-          <button
-            className="command-button command-button--secondary"
-            disabled={selectedMembers.length === 0}
-            onClick={() => onQuarantineSelection?.(selectedMembers)}
-            type="button"
-          >
-            选中项移到待删除
-          </button>
-        </div>
       </div>
       <BookmarkMemberList
         members={group.members}
         onLocate={onLocate}
         onOpen={onOpen}
-        onSelectionChange={onSelectionChange}
-        selectedIds={selectedIds}
+        onEdit={onEdit}
+        onMove={onMove}
+        onDelete={onDelete}
       />
     </li>
   );
@@ -275,10 +293,16 @@ function SimilarityResult({
   group,
   onOpen,
   onLocate,
+  onEdit,
+  onMove,
+  onDelete,
 }: {
   readonly group: SimilarityGroup;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
 }) {
   const evidence = uniqueLabels(
     group.evidence.map(({ type }) => SIMILARITY_EVIDENCE_LABELS[type]),
@@ -290,7 +314,7 @@ function SimilarityResult({
         group.confidence === 'high' ? '高相似' : '可能相关',
         ...evidence,
       ])} />
-      <BookmarkMemberList members={group.members} onLocate={onLocate} onOpen={onOpen} />
+      <BookmarkMemberList members={group.members} onDelete={onDelete} onEdit={onEdit} onLocate={onLocate} onMove={onMove} onOpen={onOpen} />
     </li>
   );
 }
@@ -376,7 +400,10 @@ export function OrganizeView({
   onLocateBookmark,
   onLocateFolder,
   onMoveSelection,
-  onQuarantineSelection,
+  onDeleteSelection,
+  onEdit,
+  onMove,
+  onDelete,
 }: OrganizeViewProps) {
   const [activeTab, setActiveTab] = useState<OrganizeTab>('duplicates');
   const [limits, setLimits] = useState<Record<OrganizeTab, number>>({
@@ -480,7 +507,10 @@ export function OrganizeView({
                     onLocate={onLocateBookmark}
                     onMoveSelection={onMoveSelection}
                     onOpen={onOpen}
-                    onQuarantineSelection={onQuarantineSelection}
+                    onDeleteSelection={onDeleteSelection}
+                    onEdit={onEdit}
+                    onMove={onMove}
+                    onDelete={onDelete}
                     onSelectionChange={changeDuplicateSelection}
                     selectedIds={selectedDuplicateIds}
                   />
@@ -505,7 +535,7 @@ export function OrganizeView({
             <>
               <ul className="organize-group-list">
                 {similarGroups.slice(0, limits.similar).map((group) => (
-                  <SimilarityResult group={group} key={group.id} onLocate={onLocateBookmark} onOpen={onOpen} />
+                    <SimilarityResult group={group} key={group.id} onDelete={onDelete} onEdit={onEdit} onLocate={onLocateBookmark} onMove={onMove} onOpen={onOpen} />
                 ))}
               </ul>
               {limits.similar < similarGroups.length && <LoadMore onClick={() => loadMore('similar')} />}

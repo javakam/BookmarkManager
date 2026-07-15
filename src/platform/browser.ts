@@ -36,6 +36,7 @@ export interface BrowserBookmarksApi {
     destination: BrowserMoveDestination,
   ): Promise<BrowserBookmarkNode>;
   remove(id: string): Promise<void>;
+  removeTree?(id: string): Promise<void>;
   onCreated?: BrowserBookmarkEvent;
   onRemoved?: BrowserBookmarkEvent;
   onChanged?: BrowserBookmarkEvent;

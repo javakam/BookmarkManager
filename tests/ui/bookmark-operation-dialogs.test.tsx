@@ -148,7 +148,7 @@ async function renderReady(tree = operationTree()) {
 
 async function confirmOperation(name = '确认执行') {
   fireEvent.click(await screen.findByRole('button', { name }));
-  await screen.findByRole('dialog', { name: '操作结果' });
+  await screen.findByRole('status', { name: '操作提示' });
 }
 
 describe('single bookmark operations', () => {
@@ -233,26 +233,19 @@ describe('single bookmark operations', () => {
     });
   });
 
-  it('moves a bookmark to the recoverable quarantine folder without permanent delete wording or remove calls', async () => {
+  it('permanently deletes a bookmark after explicit confirmation', async () => {
     const repository = await renderReady();
 
     fireEvent.click(
-      screen.getByRole('button', { name: '移到待删除 important.example.test' }),
+      screen.getByRole('button', { name: '删除 important.example.test' }),
     );
 
     const confirm = await screen.findByRole('dialog', { name: '确认操作' });
-    expect(within(confirm).getByText('可恢复')).toBeTruthy();
-    expect(confirm.textContent).not.toContain('永久删除');
+    expect(within(confirm).getByText('删除后无法恢复')).toBeTruthy();
     await confirmOperation();
 
-    expect(repository.createFolder).toHaveBeenCalledWith({
-      parentId: 'other',
-      title: '待删除（书签工作台）',
-    });
-    expect(repository.move).toHaveBeenCalledWith('icon-only', {
-      parentId: 'created-folder',
-    });
-    expect(repository.remove).not.toHaveBeenCalled();
+    expect(repository.remove).toHaveBeenCalledWith('icon-only');
+    expect(repository.createFolder).not.toHaveBeenCalled();
   });
 
   it('does not expose write controls for managed nodes', async () => {
@@ -265,5 +258,18 @@ describe('single bookmark operations', () => {
     expect(screen.queryByRole('button', { name: /编辑 Managed/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /移动 Managed/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /移到待删除 Managed/ })).toBeNull();
+  });
+
+  it('opens edit, move, and permanent delete actions from a bookmark row context menu', async () => {
+    await renderReady();
+    const row = screen.getByText('important.example.test').closest('.bookmark-row') as HTMLElement;
+
+    fireEvent.contextMenu(row, { clientX: 120, clientY: 80 });
+
+    const menu = screen.getByRole('menu', { name: 'important.example.test 操作' });
+    expect(within(menu).getByRole('menuitem', { name: '编辑' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: '移动' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: '删除' })).toBeTruthy();
+    expect(within(menu).queryByText(/待删除/)).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
-import { ExternalLink, Folder, LocateFixed, Lock } from 'lucide-react';
+import { ExternalLink, Folder, LocateFixed, Lock, MoveRight, Pencil, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 
 import {
   getBookmarkDisplayInfo,
@@ -10,6 +11,7 @@ import {
   bookmarkOpenLabel,
   Favicon,
 } from './BookmarkRow';
+import { useItemContextMenu } from './useItemContextMenu';
 
 const REASON_LABELS: Readonly<Record<SearchReason, string>> = {
   'title-exact': '标题完全匹配',
@@ -26,6 +28,9 @@ interface SearchResultsProps {
   readonly onEnterFolder: (folderId: string) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
   readonly onOpen: (record: BookmarkRecord) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
 }
 
 function resultPath(record: BookmarkRecord): string {
@@ -37,7 +42,19 @@ export function SearchResults({
   onEnterFolder,
   onLocate,
   onOpen,
+  onEdit,
+  onMove,
+  onDelete,
 }: SearchResultsProps) {
+  const [contextNode, setContextNode] = useState<BookmarkRecord>();
+  const contextDisplay = contextNode ? getBookmarkDisplayInfo(contextNode) : undefined;
+  const context = useItemContextMenu(contextDisplay?.displayTitle ?? '', contextNode ? [
+    ...(!contextNode.isFolder ? [{ label: '打开', onSelect: () => onOpen(contextNode) }] : []),
+    { label: '定位', onSelect: () => onLocate(contextNode) },
+    ...(onEdit && !contextNode.isUnmodifiable ? [{ label: '编辑', onSelect: () => onEdit(contextNode) }] : []),
+    ...(onMove && !contextNode.isUnmodifiable ? [{ label: '移动', onSelect: () => onMove(contextNode) }] : []),
+    ...(onDelete && !contextNode.isUnmodifiable ? [{ label: '删除', onSelect: () => onDelete(contextNode), danger: true }] : []),
+  ] : []);
   return (
     <section aria-labelledby="search-results-heading" className="search-results">
       <div className="content-heading">
@@ -57,7 +74,7 @@ export function SearchResults({
             const visibleReasons = result.reasons.slice(0, 2);
             const remainingReasonCount = result.reasons.length - visibleReasons.length;
             return (
-              <li className="search-result-row" key={node.id}>
+              <li className="search-result-row" key={node.id} onContextMenu={(event) => { setContextNode(node); context.onContextMenu(event); }}>
                 <span className="bookmark-row__icon">
                   {node.isFolder ? (
                     <Folder aria-hidden="true" className="item-icon item-icon--folder" />
@@ -125,12 +142,16 @@ export function SearchResults({
                       <LocateFixed aria-hidden="true" size={17} />
                     </button>
                   )}
+                  {!node.isUnmodifiable && onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(node)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
+                  {!node.isUnmodifiable && onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(node)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
+                  {!node.isUnmodifiable && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(node)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
                 </span>
               </li>
             );
           })}
         </ul>
       )}
+      {context.contextMenu}
     </section>
   );
 }

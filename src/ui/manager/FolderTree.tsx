@@ -7,10 +7,12 @@ import {
   Lock,
   Settings,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import type { BookmarkViewModel } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import type { FolderDropPosition } from '../../domain/folder-reorder';
+import { useItemContextMenu } from './useItemContextMenu';
 
 export type ManagerView = 'browse' | 'organize' | 'settings';
 
@@ -23,6 +25,9 @@ interface FolderTreeProps {
   readonly onSelect: (folderId: string) => void;
   readonly onToggle: (folderId: string) => void;
   readonly onViewChange: (view: ManagerView) => void;
+  readonly onEdit?: (record: BookmarkRecord) => void;
+  readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
   readonly onReorder?: (
     sourceId: string,
     anchorId: string,
@@ -39,6 +44,9 @@ type FolderTreeNodeProps = Pick<
   | 'onSelect'
   | 'onToggle'
   | 'onReorder'
+  | 'onEdit'
+  | 'onMove'
+  | 'onDelete'
 > & {
   readonly folder: BookmarkRecord;
   readonly depth: number;
@@ -54,7 +62,11 @@ function FolderTreeNode({
   onSelect,
   onToggle,
   onReorder,
+  onEdit,
+  onMove,
+  onDelete,
 }: FolderTreeNodeProps) {
+  const [dropPosition, setDropPosition] = useState<FolderDropPosition>();
   const childFolders = (model.childrenByParentId.get(folder.id) ?? []).filter(
     (record) => record.isFolder,
   );
@@ -72,12 +84,26 @@ function FolderTreeNode({
     !folder.isUnmodifiable &&
     folder.parentId !== undefined &&
     onReorder !== undefined;
+  const canManage = folder.folderType === 'unknown' && !folder.isUnmodifiable;
+  const context = useItemContextMenu(label, [
+    { label: '打开', onSelect: () => onSelect(folder.id) },
+    ...(canManage && onEdit ? [{ label: '编辑', onSelect: () => onEdit(folder) }] : []),
+    ...(canManage && onMove ? [{ label: '移动', onSelect: () => onMove(folder) }] : []),
+    ...(canManage && onDelete ? [{ label: '删除', onSelect: () => onDelete(folder), danger: true }] : []),
+  ]);
+
+  const startDrag = (event: React.DragEvent<HTMLElement>) => {
+    if (!canReorder) { event.preventDefault(); return; }
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-bookmark-folder', JSON.stringify({ sourceId: folder.id, parentId: folder.parentId }));
+  };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     if (!canReorder) {
       return;
     }
     event.preventDefault();
+    setDropPosition(undefined);
     try {
       const payload = JSON.parse(
         event.dataTransfer.getData('application/x-bookmark-folder'),
@@ -100,22 +126,16 @@ function FolderTreeNode({
       <div
         className={`folder-tree__row${isActive ? ' folder-tree__row--active' : ''}${
           canReorder ? ' folder-tree__row--draggable' : ''
-        }`}
+        }${dropPosition ? ` folder-tree__row--drop-${dropPosition}` : ''}`}
         draggable={canReorder}
-        onDragStart={(event) => {
-          if (!canReorder) {
-            event.preventDefault();
-            return;
-          }
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData(
-            'application/x-bookmark-folder',
-            JSON.stringify({ sourceId: folder.id, parentId: folder.parentId }),
-          );
-        }}
+        onContextMenu={context.onContextMenu}
+        onDragLeave={() => setDropPosition(undefined)}
+        onDragStart={startDrag}
         onDragOver={(event) => {
           if (canReorder) {
             event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            setDropPosition(bounds.height > 0 && event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after');
           }
         }}
         onDrop={handleDrop}
@@ -144,6 +164,8 @@ function FolderTreeNode({
         <button
           aria-current={isActive ? 'page' : undefined}
           className="folder-tree__label"
+          draggable={canReorder}
+          onDragStart={startDrag}
           onClick={() => onSelect(folder.id)}
           title={label}
           type="button"
@@ -178,6 +200,7 @@ function FolderTreeNode({
           </span>
         )}
       </div>
+      {context.contextMenu}
       {isExpanded && childFolders.length > 0 && (
         <ul>
           {childFolders.map((child) => (
@@ -189,6 +212,9 @@ function FolderTreeNode({
               key={child.id}
               model={model}
               onReorder={onReorder}
+              onEdit={onEdit}
+              onMove={onMove}
+              onDelete={onDelete}
               onSelect={onSelect}
               onToggle={onToggle}
               showFolderCounts={showFolderCounts}

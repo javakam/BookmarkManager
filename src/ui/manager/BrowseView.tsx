@@ -7,6 +7,7 @@ import {
 } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import { BookmarkRow } from './BookmarkRow';
+import { useItemContextMenu } from './useItemContextMenu';
 
 const PAGE_SIZE = 100;
 
@@ -15,15 +16,15 @@ interface BrowseViewProps {
   readonly activeFolderId: string;
   readonly highlightedId?: string;
   readonly selectedIds?: ReadonlySet<string>;
-  readonly isQuarantineFolder?: boolean;
-  readonly quarantineFolderId?: string;
   readonly onCreateBookmark?: (parentId: string) => void;
   readonly onCreateFolder?: (parentId: string) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onNavigate: (folderId: string) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
+  readonly onMoveSelection?: () => void;
   readonly onOpen: (record: BookmarkRecord) => void;
-  readonly onQuarantine?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
+  readonly onDeleteSelection?: () => void;
   readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
 }
 
@@ -32,18 +33,19 @@ export function BrowseView({
   activeFolderId,
   highlightedId,
   selectedIds,
-  isQuarantineFolder = false,
-  quarantineFolderId,
   onCreateBookmark,
   onCreateFolder,
   onEdit,
   onNavigate,
   onMove,
+  onMoveSelection,
   onOpen,
-  onQuarantine,
+  onDelete,
+  onDeleteSelection,
   onSelectionChange,
 }: BrowseViewProps) {
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
+  const [contextRecord, setContextRecord] = useState<BookmarkRecord>();
 
   useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
@@ -58,7 +60,21 @@ export function BrowseView({
   const breadcrumbs = model.getBreadcrumbs(activeFolderId);
   const children = model.childrenByParentId.get(activeFolderId) ?? [];
   const visibleChildren = children.slice(0, visibleLimit);
+  const selectableChildren = children.filter(
+    (record) => !record.isRoot && !record.isUnmodifiable,
+  );
+  const selectedCount = selectableChildren.filter((record) =>
+    selectedIds?.has(record.id),
+  ).length;
   const canWriteInFolder = !activeFolder.isRoot && !activeFolder.isUnmodifiable;
+  const contextDisplay = contextRecord ? getBookmarkDisplayInfo(contextRecord) : undefined;
+  const context = useItemContextMenu(contextDisplay?.displayTitle ?? '', contextRecord ? [
+    ...(!contextRecord.isFolder && contextRecord.url ? [{ label: '打开', onSelect: () => onOpen(contextRecord) }] : []),
+    ...(contextRecord.isFolder ? [{ label: '打开文件夹', onSelect: () => onNavigate(contextRecord.id) }] : []),
+    ...(!contextRecord.isUnmodifiable && onEdit ? [{ label: '编辑', onSelect: () => onEdit(contextRecord) }] : []),
+    ...(!contextRecord.isUnmodifiable && onMove ? [{ label: '移动', onSelect: () => onMove(contextRecord) }] : []),
+    ...(!contextRecord.isUnmodifiable && onDelete ? [{ label: '删除', onSelect: () => onDelete(contextRecord), danger: true }] : []),
+  ] : []);
 
   return (
     <section aria-labelledby="browse-heading" className="browse-view">
@@ -103,22 +119,21 @@ export function BrowseView({
         </div>
         {canWriteInFolder && (
           <div className="content-heading__actions">
-            <button
-              className="command-button"
-              onClick={() => onCreateBookmark?.(activeFolderId)}
-              type="button"
-            >
-              <Plus aria-hidden="true" size={15} />
-              新建书签
-            </button>
-            <button
-              className="command-button"
-              onClick={() => onCreateFolder?.(activeFolderId)}
-              type="button"
-            >
-              <FolderPlus aria-hidden="true" size={15} />
-              新建文件夹
-            </button>
+            <div className="folder-batch-group">
+              <span>批量操作</span>
+              <div aria-label="文件夹批量操作" className="folder-batch-tools" role="toolbar">
+                <button disabled={selectedCount === 0} onClick={onDeleteSelection} type="button">删除</button>
+                <button disabled={selectedCount === 0} onClick={onMoveSelection} type="button">移动</button>
+              </div>
+            </div>
+            <div className="content-create-tools">
+              <button className="command-button" onClick={() => onCreateBookmark?.(activeFolderId)} type="button">
+                <Plus aria-hidden="true" size={15} />新建书签
+              </button>
+              <button className="command-button" onClick={() => onCreateFolder?.(activeFolderId)} type="button">
+                <FolderPlus aria-hidden="true" size={15} />新建文件夹
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -133,19 +148,19 @@ export function BrowseView({
                 onEdit={onEdit}
                 onMove={onMove}
                 onOpen={onOpen}
-                onQuarantine={onQuarantine}
+                onDelete={onDelete}
+                onContextMenu={(event, nextRecord) => { setContextRecord(nextRecord); context.onContextMenu(event); }}
                 onSelectionChange={onSelectionChange}
                 record={record}
                 selectable={
                   !record.isRoot &&
-                  !record.isUnmodifiable &&
-                  record.id !== quarantineFolderId &&
-                  (!record.isFolder || !isQuarantineFolder)
+                  !record.isUnmodifiable
                 }
                 selected={selectedIds?.has(record.id) ?? false}
               />
             ))}
           </ul>
+          {context.contextMenu}
           {visibleChildren.length < children.length && (
             <div className="browse-load-more">
               <button

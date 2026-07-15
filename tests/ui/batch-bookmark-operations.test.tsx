@@ -132,17 +132,24 @@ async function renderReady(
 
 async function confirm() {
   fireEvent.click(await screen.findByRole('button', { name: '确认执行' }));
-  await screen.findByRole('dialog', { name: '操作结果' });
+  await screen.findByRole('status', { name: '操作提示' });
 }
 
 describe('batch bookmark operations', () => {
-  it('shows selection only in browse, clears it on folder change, and batch moves selected items', async () => {
+  it('renders a bordered folder toolbar beside create actions and batch moves selected items', async () => {
     const { repository } = await renderReady();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
-    expect(await screen.findByRole('toolbar', { name: '批量操作' })).toBeTruthy();
+    const toolbar = screen.getByRole('toolbar', { name: '文件夹批量操作' });
+    expect(toolbar.closest('.content-heading')).toBeTruthy();
+    expect(screen.getByText('批量操作')).toBeTruthy();
+    expect(within(toolbar).queryByRole('button', { name: '全选' })).toBeNull();
+    expect(within(toolbar).queryByRole('button', { name: '反选' })).toBeNull();
+    expect(within(toolbar).getByRole('button', { name: '删除' })).toBeTruthy();
+    expect(within(toolbar).getByRole('button', { name: '移动' })).toBeTruthy();
+    expect(screen.queryByRole('toolbar', { name: '批量操作' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '移动到……' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
+    fireEvent.click(within(toolbar).getByRole('button', { name: '移动' }));
     const dialog = await screen.findByRole('dialog', { name: '移动到' });
     fireEvent.change(within(dialog).getByLabelText('目标文件夹'), {
       target: { value: 'other' },
@@ -151,83 +158,29 @@ describe('batch bookmark operations', () => {
     await confirm();
 
     expect(repository.move).toHaveBeenCalledWith('a', { parentId: 'other' });
-    fireEvent.click(screen.getByRole('button', { name: '知道了' }));
-    expect(screen.queryByRole('toolbar', { name: '批量操作' })).toBeNull();
+    expect(
+      (within(toolbar).getByRole('button', { name: '移动' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
     fireEvent.click(within(sidebar).getByRole('button', { name: '其他书签' }));
-    expect(screen.queryByRole('toolbar', { name: '批量操作' })).toBeNull();
+    expect(screen.queryByRole('toolbar', { name: '文件夹批量操作' })).toBeTruthy();
   });
 
-  it('batch quarantines selected bookmarks without remove calls', async () => {
+  it('permanently deletes selected bookmarks without creating a quarantine folder', async () => {
     const { repository } = await renderReady();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
-    fireEvent.click(screen.getByRole('button', { name: '移到待删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
 
-    expect(await screen.findByText('将移到待删除 1 项')).toBeTruthy();
+    expect(await screen.findByText('将永久删除 1 项')).toBeTruthy();
+    expect(screen.getByText('删除后无法恢复')).toBeTruthy();
     await confirm();
 
-    expect(repository.move).toHaveBeenCalledWith('a', {
-      parentId: 'quarantine',
-    });
-    expect(repository.remove).not.toHaveBeenCalled();
+    expect(repository.remove).toHaveBeenCalledWith('a');
+    expect(repository.createFolder).not.toHaveBeenCalled();
   });
 
-  it('restores selected quarantine items through recovery anchors', async () => {
-    const storage = createMemoryBookmarkOperationStorage();
-    await storage.saveQuarantineFolderId('quarantine');
-    await storage.upsertRecoveryEntry({
-      nodeId: 'deleted-a',
-      originalParentId: 'bar',
-      originalIndex: 0,
-      quarantinedAt: 1,
-    });
-    const { repository } = await renderReady(storage);
-    const sidebar = screen.getByRole('navigation', { name: '主导航' });
-
-    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 其他书签' }));
-    fireEvent.click(within(sidebar).getByRole('button', { name: '待删除（书签工作台）' }));
-    await screen.findByRole('heading', { name: '待删除（书签工作台）' });
-    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Deleted A' }));
-    fireEvent.click(screen.getByRole('button', { name: '恢复' }));
-    await confirm();
-
-    expect(repository.move).toHaveBeenCalledWith('deleted-a', {
-      parentId: 'bar',
-      index: 0,
-    });
-  });
-
-  it('asks for a fallback folder before restoring when the original parent is missing', async () => {
-    const storage = createMemoryBookmarkOperationStorage();
-    await storage.saveQuarantineFolderId('quarantine');
-    await storage.upsertRecoveryEntry({
-      nodeId: 'deleted-a',
-      originalParentId: 'missing-parent',
-      originalIndex: 0,
-      quarantinedAt: 1,
-    });
-    const { repository } = await renderReady(storage);
-    const sidebar = screen.getByRole('navigation', { name: '主导航' });
-
-    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 其他书签' }));
-    fireEvent.click(within(sidebar).getByRole('button', { name: '待删除（书签工作台）' }));
-    await screen.findByRole('heading', { name: '待删除（书签工作台）' });
-    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Deleted A' }));
-    fireEvent.click(screen.getByRole('button', { name: '恢复' }));
-
-    const fallback = await screen.findByRole('dialog', { name: '移动到' });
-    fireEvent.change(within(fallback).getByLabelText('目标文件夹'), {
-      target: { value: 'bar' },
-    });
-    fireEvent.click(within(fallback).getByRole('button', { name: '预览' }));
-    await confirm();
-
-    expect(repository.move).toHaveBeenCalledWith('deleted-a', {
-      parentId: 'bar',
-      index: 0,
-    });
-  });
 });

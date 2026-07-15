@@ -8,6 +8,7 @@ export type BookmarkOperationKind =
   | 'update'
   | 'move'
   | 'reorder'
+  | 'delete'
   | 'quarantine'
   | 'restore';
 

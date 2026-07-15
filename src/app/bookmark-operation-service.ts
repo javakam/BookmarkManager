@@ -61,6 +61,11 @@ type QuarantinePlan = PlanBase & {
   readonly sources: readonly BookmarkFingerprint[];
 };
 
+type DeletePlan = PlanBase & {
+  readonly kind: 'delete';
+  readonly sources: readonly BookmarkFingerprint[];
+};
+
 type RestorePlan = PlanBase & {
   readonly kind: 'restore';
   readonly entries: readonly BookmarkRecoveryEntry[];
@@ -72,6 +77,7 @@ export type BookmarkOperationPlan =
   | CreateFolderPlan
   | UpdatePlan
   | MovePlan
+  | DeletePlan
   | QuarantinePlan
   | RestorePlan;
 
@@ -108,6 +114,10 @@ export interface BookmarkOperationService {
     id: string,
     destination: { readonly parentId: string; readonly index: number },
   ): MovePlan;
+  planDelete(
+    records: readonly BookmarkRecord[],
+    ids: readonly string[],
+  ): DeletePlan;
   planQuarantine(
     records: readonly BookmarkRecord[],
     ids: readonly string[],
@@ -381,6 +391,20 @@ export function createBookmarkOperationService({
         siblings: siblings.map(createBookmarkFingerprint),
       };
     },
+    planDelete(records, ids) {
+      const sources = collectSources(records, ids);
+      for (const source of sources) {
+        const writable = validateWritableRecord(source);
+        if (!writable.valid) {
+          throw new Error(writable.reason);
+        }
+      }
+      return {
+        ...makePlanBase('delete'),
+        kind: 'delete',
+        sources: sources.map(createBookmarkFingerprint),
+      };
+    },
     planQuarantine(records, ids) {
       const sources = collectSources(records, ids);
       for (const source of sources) {
@@ -540,6 +564,33 @@ export function createBookmarkOperationService({
               status: 'success',
               message: plan.kind === 'reorder' ? '已排序' : '已移动',
             });
+          } catch (error) {
+            results.push(createFailure(source.id, error));
+          }
+        }
+        return { kind: plan.kind, results };
+      }
+
+      if (plan.kind === 'delete') {
+        const results: BookmarkOperationResult[] = [];
+        for (const source of plan.sources) {
+          const records = await readFreshRecords();
+          const byId = recordsById(records);
+          if (!requireCurrentFingerprint(byId, source)) {
+            results.push({
+              id: source.id,
+              status: 'conflict',
+              message: CONFLICT_MESSAGE,
+            });
+            continue;
+          }
+          try {
+            if (source.isFolder && repository.removeTree) {
+              await repository.removeTree(source.id);
+            } else {
+              await repository.remove(source.id);
+            }
+            results.push({ id: source.id, status: 'success', message: '已删除' });
           } catch (error) {
             results.push(createFailure(source.id, error));
           }

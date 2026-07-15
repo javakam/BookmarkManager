@@ -32,6 +32,7 @@ export interface BookmarkRepository {
     destination: { parentId: string; index?: number },
   ): Promise<BrowserBookmarkNode>;
   remove(id: string): Promise<void>;
+  removeTree?(id: string): Promise<void>;
   onChanged(
     listener: (change: BookmarkRepositoryChange) => void,
   ): () => void;
@@ -89,6 +90,13 @@ export function createChromeBookmarkRepository(
     },
     async remove(id) {
       await resolveApi().remove(id);
+    },
+    async removeTree(id) {
+      const removeTree = resolveApi().removeTree;
+      if (!removeTree) {
+        throw new Error('当前浏览器不支持删除非空文件夹');
+      }
+      await removeTree.call(resolveApi(), id);
     },
     onChanged(listener) {
       const resolvedApi = resolveApi();

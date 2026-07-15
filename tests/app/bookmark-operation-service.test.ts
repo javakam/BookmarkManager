@@ -99,6 +99,7 @@ function repositoryStub(
       title: id,
     })),
     remove: vi.fn(),
+    removeTree: vi.fn(),
     onChanged: vi.fn(() => () => undefined),
   };
 }
@@ -193,6 +194,33 @@ describe('createBookmarkOperationService', () => {
         { id: 'b', status: 'failure', message: 'move denied' },
       ],
     });
+  });
+
+  it('permanently deletes selected native bookmarks after fingerprint validation', async () => {
+    const repository = repositoryStub();
+    const service = createBookmarkOperationService({
+      repository,
+      storage: createMemoryBookmarkOperationStorage(),
+    });
+    const plan = service.planDelete(flattenBookmarkTree(tree()), ['b', 'a']);
+
+    await expect(service.execute(plan)).resolves.toEqual({
+      kind: 'delete',
+      results: [
+        { id: 'a', status: 'success', message: '已删除' },
+        { id: 'b', status: 'success', message: '已删除' },
+      ],
+    });
+    expect(vi.mocked(repository.remove).mock.calls.map(([id]) => id)).toEqual([
+      'a',
+      'b',
+    ]);
+    expect(repository.createFolder).not.toHaveBeenCalled();
+    expect(repository.move).not.toHaveBeenCalled();
+
+    const folderPlan = service.planDelete(flattenBookmarkTree(tree()), ['folder']);
+    await service.execute(folderPlan);
+    expect(repository.removeTree).toHaveBeenCalledWith('folder');
   });
 
   it('quarantines bookmarks through move, creates the native quarantine folder, and stores recovery anchors', async () => {

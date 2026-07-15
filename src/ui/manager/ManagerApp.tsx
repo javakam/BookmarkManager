@@ -45,11 +45,9 @@ import {
 } from '../../platform/manager-settings-repository';
 import { BookmarkEditorDialog } from './BookmarkEditorDialog';
 import { BrowseView } from './BrowseView';
-import { BatchActionBar } from './BatchActionBar';
 import { ConfirmOperationDialog } from './ConfirmOperationDialog';
 import { FolderTree, type ManagerView } from './FolderTree';
 import { MoveBookmarkDialog } from './MoveBookmarkDialog';
-import { OperationResultDialog } from './OperationResultDialog';
 import { OrganizeView } from './OrganizeView';
 import { SearchResults } from './SearchResults';
 import { SettingsView } from './SettingsView';
@@ -213,6 +211,12 @@ export function ManagerApp({
     return () => document.removeEventListener('keydown', handleKeyboard);
   }, []);
 
+  useEffect(() => {
+    if (!operationResult) return;
+    const timer = window.setTimeout(() => setOperationResult(undefined), 2600);
+    return () => window.clearTimeout(timer);
+  }, [operationResult]);
+
   const revealFolder = useCallback(
     (folderId: string) => {
       const pathIds = model.getBreadcrumbs(folderId).map(({ id }) => id);
@@ -375,10 +379,10 @@ export function ManagerApp({
     ],
   );
 
-  const previewQuarantine = useCallback(
+  const previewDelete = useCallback(
     (record: BookmarkRecord) => {
       try {
-        setConfirmPlan(operationService.planQuarantine(data.records, [record.id]));
+        setConfirmPlan(operationService.planDelete(data.records, [record.id]));
         setOperationError(undefined);
       } catch (error) {
         setOperationError(error instanceof Error ? error.message : String(error));
@@ -479,26 +483,10 @@ export function ManagerApp({
     );
   }, [data.records, model, moveRecord, moveSourceIds, restoreFallbackEntries]);
 
-  const selectedRecords = useMemo(
-    () =>
-      [...selectedIds].flatMap((id) => {
-        const record = model.recordById.get(id);
-        return record ? [record] : [];
-      }),
-    [model, selectedIds],
-  );
   const selectedRecoveryEntries = useMemo(() => {
     const selected = selectedIds;
     return recoveryEntries.filter((entry) => selected.has(entry.nodeId));
   }, [recoveryEntries, selectedIds]);
-  const currentFolder = resolvedFolderId
-    ? model.recordById.get(resolvedFolderId)
-    : undefined;
-  const isQuarantineFolder =
-    isNativeQuarantineFolder(currentFolder, data.records);
-  const quarantineFolder = data.records.find((record) =>
-    isNativeQuarantineFolder(record, data.records),
-  );
 
   const toggleSelection = useCallback(
     (record: BookmarkRecord, selected: boolean) => {
@@ -515,10 +503,10 @@ export function ManagerApp({
     [],
   );
 
-  const previewBatchQuarantine = useCallback(() => {
+  const previewBatchDelete = useCallback(() => {
     try {
       setConfirmPlan(
-        operationService.planQuarantine(data.records, [...selectedIds]),
+        operationService.planDelete(data.records, [...selectedIds]),
       );
       setOperationError(undefined);
     } catch (error) {
@@ -526,11 +514,11 @@ export function ManagerApp({
     }
   }, [data.records, operationService, selectedIds]);
 
-  const previewOrganizeQuarantine = useCallback(
+  const previewOrganizeDelete = useCallback(
     (records: readonly BookmarkRecord[]) => {
       try {
         setConfirmPlan(
-          operationService.planQuarantine(
+          operationService.planDelete(
             data.records,
             records.map(({ id }) => id),
           ),
@@ -604,13 +592,16 @@ export function ManagerApp({
       content = (
         <OrganizeView
           analysis={organizeAnalysis.analysis}
+          onDelete={previewDelete}
+          onDeleteSelection={previewOrganizeDelete}
+          onEdit={(record) => setEditorState({ mode: 'edit', record })}
           onLocateBookmark={locate}
           onLocateFolder={locateFolder}
           onMoveSelection={(records) =>
             setMoveSourceIds(records.map(({ id }) => id))
           }
+          onMove={setMoveRecord}
           onOpen={(record) => void handleOpen(record)}
-          onQuarantineSelection={previewOrganizeQuarantine}
         />
       );
     } else if (organizeAnalysis.status === 'error') {
@@ -635,8 +626,11 @@ export function ManagerApp({
   } else if (normalizedQuery) {
     content = (
       <SearchResults
+        onDelete={previewDelete}
+        onEdit={(record) => setEditorState({ mode: 'edit', record })}
         onEnterFolder={enterSearchFolder}
         onLocate={locate}
+        onMove={setMoveRecord}
         onOpen={(record) => void handleOpen(record)}
         results={results}
       />
@@ -657,11 +651,11 @@ export function ManagerApp({
         onNavigate={navigate}
         onMove={setMoveRecord}
         onOpen={(record) => void handleOpen(record)}
-        onQuarantine={previewQuarantine}
+        onDelete={previewDelete}
+        onDeleteSelection={previewBatchDelete}
+        onMoveSelection={() => setMoveSourceIds([...selectedIds])}
         onSelectionChange={toggleSelection}
         selectedIds={selectedIds}
-        isQuarantineFolder={isQuarantineFolder}
-        quarantineFolderId={quarantineFolder?.id}
       />
     );
   }
@@ -750,6 +744,9 @@ export function ManagerApp({
             setView('browse');
           }}
           onReorder={previewFolderReorder}
+          onEdit={(record) => setEditorState({ mode: 'edit', record })}
+          onMove={setMoveRecord}
+          onDelete={previewDelete}
           onToggle={(folderId) => {
             setExpandedFolderIds((current) => {
               const next = new Set(current);
@@ -775,23 +772,6 @@ export function ManagerApp({
           {openError && <div className="inline-error" role="alert">{openError}</div>}
           {operationError && <div className="inline-error" role="alert">{operationError}</div>}
           {locationStatus && <div className="location-status" role="status">{locationStatus}</div>}
-          {view === 'browse' && selectedIds.size > 0 && !normalizedQuery && (
-            <BatchActionBar
-              canQuarantine={
-                !isQuarantineFolder &&
-                selectedRecords.length > 0 &&
-                selectedRecords.every((record) => !record.isFolder)
-              }
-              canRestore={
-                isQuarantineFolder && selectedRecoveryEntries.length > 0
-              }
-              onCancelSelection={() => setSelectedIds(new Set())}
-              onMove={() => setMoveSourceIds([...selectedIds])}
-              onQuarantine={previewBatchQuarantine}
-              onRestore={previewBatchRestore}
-              selectedCount={selectedIds.size}
-            />
-          )}
           {content}
         </main>
       </div>
@@ -820,10 +800,11 @@ export function ManagerApp({
         />
       )}
       {operationResult && (
-        <OperationResultDialog
-          execution={operationResult}
-          onClose={() => setOperationResult(undefined)}
-        />
+        <div aria-label="操作提示" className="operation-toast" role={operationResult.results.some((result) => result.status !== 'success') ? 'alert' : 'status'}>
+          {operationResult.results.every((result) => result.status === 'success')
+            ? operationResult.results[0]?.message ?? '操作成功'
+            : operationResult.results.map((result) => result.message).join('；')}
+        </div>
       )}
     </div>
   );

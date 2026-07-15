@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  Archive,
   ExternalLink,
   Folder,
   Globe,
   Lock,
   MoveRight,
   Pencil,
+  Trash2,
 } from 'lucide-react';
 
 import {
@@ -14,6 +14,7 @@ import {
   type BookmarkDisplayInfo,
 } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import type { MouseEvent } from 'react';
 
 interface BookmarkRowProps {
   readonly record: BookmarkRecord;
@@ -24,8 +25,9 @@ interface BookmarkRowProps {
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
-  readonly onQuarantine?: (record: BookmarkRecord) => void;
+  readonly onDelete?: (record: BookmarkRecord) => void;
   readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
+  readonly onContextMenu?: (event: MouseEvent<HTMLElement>, record: BookmarkRecord) => void;
 }
 
 export function createFaviconUrl(url: string): string {
@@ -89,8 +91,9 @@ export function BookmarkRow({
   onEdit,
   onMove,
   onOpen,
-  onQuarantine,
+  onDelete,
   onSelectionChange,
+  onContextMenu,
 }: BookmarkRowProps) {
   const display = getBookmarkDisplayInfo(record);
   const openLabel = bookmarkOpenLabel(display);
@@ -100,6 +103,7 @@ export function BookmarkRow({
     <li
       className={`bookmark-row${highlighted ? ' bookmark-row--highlighted' : ''}`}
       data-highlighted={highlighted ? 'true' : undefined}
+      onContextMenu={(event) => onContextMenu?.(event, record)}
     >
       <span className="bookmark-row__select">
         {selectable && (
@@ -187,15 +191,15 @@ export function BookmarkRow({
             <MoveRight aria-hidden="true" size={16} />
           </button>
         )}
-        {isWritable && !record.isFolder && onQuarantine && (
+        {isWritable && onDelete && (
           <button
-            aria-label={`移到待删除 ${display.displayTitle}`}
+            aria-label={`删除 ${display.displayTitle}`}
             className="icon-button"
-            onClick={() => onQuarantine(record)}
-            title={`移到待删除 ${display.displayTitle}`}
+            onClick={() => onDelete(record)}
+            title={`删除 ${display.displayTitle}`}
             type="button"
           >
-            <Archive aria-hidden="true" size={16} />
+            <Trash2 aria-hidden="true" size={16} />
           </button>
         )}
       </span>

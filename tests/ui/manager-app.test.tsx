@@ -523,7 +523,7 @@ describe('ManagerApp browse shell', () => {
 
     expect(await screen.findByText('将调整 1 个文件夹顺序')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
-    await screen.findByRole('dialog', { name: '操作结果' });
+    await screen.findByRole('status', { name: '操作提示' });
 
     expect(repository.move).toHaveBeenCalledWith('folder-a', {
       parentId: 'bar',
