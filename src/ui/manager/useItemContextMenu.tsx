@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useId, useState, type MouseEvent } from 'react';
 
 export interface ItemMenuAction {
   readonly label: string;
@@ -10,7 +10,18 @@ export function useItemContextMenu(
   itemLabel: string,
   actions: readonly ItemMenuAction[],
 ) {
+  const menuId = useId();
   const [position, setPosition] = useState<{ x: number; y: number }>();
+
+  useEffect(() => {
+    const closeOtherMenu = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== menuId) {
+        setPosition(undefined);
+      }
+    };
+    document.addEventListener('bookmark-context-menu-open', closeOtherMenu);
+    return () => document.removeEventListener('bookmark-context-menu-open', closeOtherMenu);
+  }, [menuId]);
 
   useEffect(() => {
     if (!position) return;
@@ -29,6 +40,9 @@ export function useItemContextMenu(
   return {
     onContextMenu(event: MouseEvent<HTMLElement>) {
       event.preventDefault();
+      document.dispatchEvent(
+        new CustomEvent('bookmark-context-menu-open', { detail: menuId }),
+      );
       setPosition({ x: event.clientX, y: event.clientY });
     },
     contextMenu: position ? (

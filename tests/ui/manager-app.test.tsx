@@ -536,6 +536,19 @@ describe('ManagerApp browse shell', () => {
         ?.getAttribute('draggable'),
     ).toBe('false');
   });
+
+  it('keeps only one folder context menu open at a time', async () => {
+    await renderReady(managerTree());
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
+
+    fireEvent.contextMenu(within(sidebar).getByRole('button', { name: 'Folder A' }));
+    expect(screen.getByRole('menu', { name: 'Folder A 操作' })).toBeTruthy();
+
+    fireEvent.contextMenu(within(sidebar).getByRole('button', { name: '其他书签' }));
+    expect(screen.queryByRole('menu', { name: 'Folder A 操作' })).toBeNull();
+    expect(screen.getByRole('menu', { name: '其他书签 操作' })).toBeTruthy();
+  });
 });
 
 describe('ManagerApp settings', () => {

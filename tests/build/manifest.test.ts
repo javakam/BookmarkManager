@@ -30,7 +30,7 @@ describe('Chrome MV3 构建产物', () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.name).toBe('书签工作台');
     expect(manifest.description).toBe('本地优先的浏览器原生书签管理器');
-    expect(manifest.version).toBe('1.0.1');
+    expect(manifest.version).toBe('1.0.2');
     expect(manifest.permissions).toEqual([
       'bookmarks',
       'storage',
