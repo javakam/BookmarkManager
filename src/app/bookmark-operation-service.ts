@@ -1,11 +1,7 @@
 import type { BookmarkRecord } from '../domain/bookmarks';
 import {
-  QUARANTINE_FOLDER_TITLE,
   compareBookmarkFingerprint,
   createBookmarkFingerprint,
-  findExactQuarantineFolder,
-  isQuarantineFolder,
-  findOtherBookmarksFolder,
   sortRecordsInBrowserOrder,
   validateMoveTarget,
   validateWritableRecord,
@@ -15,11 +11,8 @@ import {
   type BookmarkOperationResult,
 } from '../domain/bookmark-operations';
 import { flattenBookmarkTree } from '../domain/tree';
+import { validateBookmarkUrl } from '../domain/url-safety';
 import type { BookmarkRepository } from '../platform/bookmark-repository';
-import type {
-  BookmarkOperationStorage,
-  BookmarkRecoveryEntry,
-} from '../platform/bookmark-operation-storage';
 
 type PlanBase = {
   readonly id: string;
@@ -56,20 +49,12 @@ type MovePlan = PlanBase & {
   readonly siblings?: readonly BookmarkFingerprint[];
 };
 
-type QuarantinePlan = PlanBase & {
-  readonly kind: 'quarantine';
-  readonly sources: readonly BookmarkFingerprint[];
-};
-
 type DeletePlan = PlanBase & {
   readonly kind: 'delete';
   readonly sources: readonly BookmarkFingerprint[];
-};
-
-type RestorePlan = PlanBase & {
-  readonly kind: 'restore';
-  readonly entries: readonly BookmarkRecoveryEntry[];
-  readonly fallbackParentId?: string;
+  readonly affectedCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
 };
 
 export type BookmarkOperationPlan =
@@ -77,9 +62,7 @@ export type BookmarkOperationPlan =
   | CreateFolderPlan
   | UpdatePlan
   | MovePlan
-  | DeletePlan
-  | QuarantinePlan
-  | RestorePlan;
+  | DeletePlan;
 
 export interface BookmarkOperationService {
   planCreateBookmark(
@@ -118,20 +101,11 @@ export interface BookmarkOperationService {
     records: readonly BookmarkRecord[],
     ids: readonly string[],
   ): DeletePlan;
-  planQuarantine(
-    records: readonly BookmarkRecord[],
-    ids: readonly string[],
-  ): QuarantinePlan;
-  planRestore(
-    entries: readonly BookmarkRecoveryEntry[],
-    fallbackParentId?: string,
-  ): RestorePlan;
   execute(plan: BookmarkOperationPlan): Promise<BookmarkOperationExecution>;
 }
 
 export interface BookmarkOperationServiceOptions {
   readonly repository: BookmarkRepository;
-  readonly storage: BookmarkOperationStorage;
   readonly now?: () => number;
 }
 
@@ -207,54 +181,59 @@ function collectSources(
   );
 }
 
-function recoveryAnchorFor(
-  record: BookmarkRecord,
+function deleteImpact(
   records: readonly BookmarkRecord[],
-  quarantinedAt: number,
-): BookmarkRecoveryEntry {
-  if (!record.parentId) {
-    throw new Error('根目录不能恢复');
+  sources: readonly BookmarkRecord[],
+): { readonly affectedCount: number; readonly folderCount: number; readonly bookmarkCount: number } {
+  const childrenByParentId = new Map<string, BookmarkRecord[]>();
+  for (const record of records) {
+    if (!record.parentId) {
+      continue;
+    }
+    const children = childrenByParentId.get(record.parentId) ?? [];
+    children.push(record);
+    childrenByParentId.set(record.parentId, children);
   }
-  const siblings = records
-    .filter((candidate) => candidate.parentId === record.parentId)
-    .sort((left, right) => left.index - right.index);
-  const previousSibling = siblings
-    .slice(0, siblings.findIndex((candidate) => candidate.id === record.id))
-    .reverse()
-    .find((candidate) => candidate.id !== record.id);
-  const nextSibling = siblings
-    .slice(siblings.findIndex((candidate) => candidate.id === record.id) + 1)
-    .find((candidate) => candidate.id !== record.id);
 
+  const affected = new Map<string, BookmarkRecord>();
+  const pending = [...sources];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || affected.has(current.id)) {
+      continue;
+    }
+    affected.set(current.id, current);
+    if (current.isFolder) {
+      pending.push(...(childrenByParentId.get(current.id) ?? []));
+    }
+  }
+
+  const folderCount = [...affected.values()].filter((record) => record.isFolder).length;
   return {
-    nodeId: record.id,
-    originalParentId: record.parentId,
-    originalIndex: record.index,
-    previousSiblingId: previousSibling?.id,
-    nextSiblingId: nextSibling?.id,
-    quarantinedAt,
+    affectedCount: affected.size,
+    folderCount,
+    bookmarkCount: affected.size - folderCount,
   };
 }
 
-function resolveRestoreIndex(
+function removeNestedDeleteSources(
   records: readonly BookmarkRecord[],
-  entry: BookmarkRecoveryEntry,
-  parentId: string,
-): number {
-  const siblings = records
-    .filter((record) => record.parentId === parentId)
-    .sort((left, right) => left.index - right.index);
-  const previousSibling = siblings.find(
-    (record) => record.id === entry.previousSiblingId,
-  );
-  if (previousSibling) {
-    return previousSibling.index + 1;
-  }
-  const nextSibling = siblings.find((record) => record.id === entry.nextSiblingId);
-  if (nextSibling) {
-    return nextSibling.index;
-  }
-  return entry.originalIndex;
+  sources: readonly BookmarkRecord[],
+): readonly BookmarkRecord[] {
+  const byId = recordsById(records);
+  const selectedIds = new Set(sources.map((source) => source.id));
+  return sources.filter((source) => {
+    let parentId = source.parentId;
+    const visited = new Set<string>();
+    while (parentId && !visited.has(parentId)) {
+      if (selectedIds.has(parentId)) {
+        return false;
+      }
+      visited.add(parentId);
+      parentId = byId.get(parentId)?.parentId;
+    }
+    return true;
+  });
 }
 
 function compareSiblingSnapshots(
@@ -280,7 +259,6 @@ function compareSiblingSnapshots(
 
 export function createBookmarkOperationService({
   repository,
-  storage,
   now = Date.now,
 }: BookmarkOperationServiceOptions): BookmarkOperationService {
   const makePlanBase = (kind: BookmarkOperationKind): PlanBase => {
@@ -292,36 +270,12 @@ export function createBookmarkOperationService({
     return flattenBookmarkTree(await repository.getTree());
   }
 
-  async function ensureQuarantineFolder(
-    records: readonly BookmarkRecord[],
-  ): Promise<string> {
-    const storedId = await storage.loadQuarantineFolderId();
-    const byId = recordsById(records);
-    const stored = storedId ? byId.get(storedId) : undefined;
-    if (stored && isQuarantineFolder(stored, records)) {
-      return stored.id;
-    }
-
-    const exact = findExactQuarantineFolder(records);
-    if (exact && !exact.isUnmodifiable) {
-      await storage.saveQuarantineFolderId(exact.id);
-      return exact.id;
-    }
-
-    const other = findOtherBookmarksFolder(records);
-    if (!other) {
-      throw new Error('找不到“其他书签”目录');
-    }
-    const created = await repository.createFolder({
-      parentId: other.id,
-      title: QUARANTINE_FOLDER_TITLE,
-    });
-    await storage.saveQuarantineFolderId(created.id);
-    return created.id;
-  }
-
   return {
     planCreateBookmark(records, input) {
+      const urlValidation = validateBookmarkUrl(input.url);
+      if (!urlValidation.valid) {
+        throw new Error(urlValidation.reason);
+      }
       const parent = createBookmarkFingerprint(
         requireWritableFolder(records, input.parentId),
       );
@@ -347,6 +301,12 @@ export function createBookmarkOperationService({
       };
     },
     planUpdate(records, id, changes) {
+      if (changes.url !== undefined) {
+        const urlValidation = validateBookmarkUrl(changes.url);
+        if (!urlValidation.valid) {
+          throw new Error(urlValidation.reason);
+        }
+      }
       const source = requireRecord(records, id);
       const writable = validateWritableRecord(source);
       if (!writable.valid) {
@@ -392,7 +352,8 @@ export function createBookmarkOperationService({
       };
     },
     planDelete(records, ids) {
-      const sources = collectSources(records, ids);
+      const selectedSources = collectSources(records, ids);
+      const sources = removeNestedDeleteSources(records, selectedSources);
       for (const source of sources) {
         const writable = validateWritableRecord(source);
         if (!writable.valid) {
@@ -403,31 +364,7 @@ export function createBookmarkOperationService({
         ...makePlanBase('delete'),
         kind: 'delete',
         sources: sources.map(createBookmarkFingerprint),
-      };
-    },
-    planQuarantine(records, ids) {
-      const sources = collectSources(records, ids);
-      for (const source of sources) {
-        const writable = validateWritableRecord(source);
-        if (!writable.valid) {
-          throw new Error(writable.reason);
-        }
-        if (source.isFolder || !source.url) {
-          throw new Error('只能将书签移到待删除');
-        }
-      }
-      return {
-        ...makePlanBase('quarantine'),
-        kind: 'quarantine',
-        sources: sources.map(createBookmarkFingerprint),
-      };
-    },
-    planRestore(entries, fallbackParentId) {
-      return {
-        ...makePlanBase('restore'),
-        kind: 'restore',
-        entries,
-        fallbackParentId,
+        ...deleteImpact(records, sources),
       };
     },
     async execute(plan) {
@@ -523,29 +460,31 @@ export function createBookmarkOperationService({
 
       if (plan.kind === 'move' || plan.kind === 'reorder') {
         const results: BookmarkOperationResult[] = [];
+        // Validate the complete batch against one native snapshot before the
+        // first write. A successful move/remove changes sibling indexes; doing
+        // a full fingerprint check after every item would therefore report
+        // false conflicts for the remaining items in the same folder.
+        const records = await readFreshRecords();
+        const byId = recordsById(records);
+        const targetIsCurrent = Boolean(
+          requireCurrentFingerprint(byId, plan.target),
+        );
+        const sourceIsCurrent = new Map(
+          plan.sources.map((source) => [
+            source.id,
+            Boolean(requireCurrentFingerprint(byId, source)),
+          ]),
+        );
+        const siblingsAreCurrent =
+          plan.kind !== 'reorder' ||
+          !plan.siblings ||
+          compareSiblingSnapshots(records, plan.target.id, plan.siblings);
+
         for (const source of plan.sources) {
-          const records = await readFreshRecords();
-          const byId = recordsById(records);
-          if (!requireCurrentFingerprint(byId, plan.target)) {
-            results.push({
-              id: source.id,
-              status: 'conflict',
-              message: CONFLICT_MESSAGE,
-            });
-            continue;
-          }
-          if (!requireCurrentFingerprint(byId, source)) {
-            results.push({
-              id: source.id,
-              status: 'conflict',
-              message: CONFLICT_MESSAGE,
-            });
-            continue;
-          }
           if (
-            plan.kind === 'reorder' &&
-            plan.siblings &&
-            !compareSiblingSnapshots(records, plan.target.id, plan.siblings)
+            !targetIsCurrent ||
+            !siblingsAreCurrent ||
+            !sourceIsCurrent.get(source.id)
           ) {
             results.push({
               id: source.id,
@@ -573,9 +512,12 @@ export function createBookmarkOperationService({
 
       if (plan.kind === 'delete') {
         const results: BookmarkOperationResult[] = [];
+        // Deleting one sibling shifts the indexes of the others. Check all
+        // fingerprints before mutating the tree so a valid batch is not
+        // rejected merely because an earlier deletion changed those indexes.
+        const records = await readFreshRecords();
+        const byId = recordsById(records);
         for (const source of plan.sources) {
-          const records = await readFreshRecords();
-          const byId = recordsById(records);
           if (!requireCurrentFingerprint(byId, source)) {
             results.push({
               id: source.id,
@@ -598,86 +540,6 @@ export function createBookmarkOperationService({
         return { kind: plan.kind, results };
       }
 
-      if (plan.kind === 'quarantine') {
-        const results: BookmarkOperationResult[] = [];
-        let knownQuarantineFolderId: string | undefined;
-        for (const source of plan.sources) {
-          const records = await readFreshRecords();
-          const byId = recordsById(records);
-          let quarantineFolderId: string;
-          try {
-            quarantineFolderId =
-              knownQuarantineFolderId ?? (await ensureQuarantineFolder(records));
-            knownQuarantineFolderId = quarantineFolderId;
-          } catch (error) {
-            results.push(createFailure(source.id, error));
-            continue;
-          }
-          const current = requireCurrentFingerprint(byId, source);
-          if (!current) {
-            results.push({
-              id: source.id,
-              status: 'conflict',
-              message: CONFLICT_MESSAGE,
-            });
-            continue;
-          }
-          try {
-            await storage.upsertRecoveryEntry(
-              recoveryAnchorFor(current, records, now()),
-            );
-            try {
-              await repository.move(source.id, { parentId: quarantineFolderId });
-            } catch (error) {
-              await storage.removeRecoveryEntry(source.id).catch(() => undefined);
-              throw error;
-            }
-            results.push({
-              id: source.id,
-              status: 'success',
-              message: '已移到待删除',
-            });
-          } catch (error) {
-            results.push(createFailure(source.id, error));
-          }
-        }
-        return { kind: plan.kind, results };
-      }
-
-      if (plan.kind === 'restore') {
-        const results: BookmarkOperationResult[] = [];
-        for (const entry of plan.entries) {
-          const records = await readFreshRecords();
-          const byId = recordsById(records);
-          const parentId =
-            byId.has(entry.originalParentId)
-              ? entry.originalParentId
-              : plan.fallbackParentId;
-          if (!parentId || !byId.get(parentId)?.isFolder) {
-            results.push({
-              id: entry.nodeId,
-              status: 'conflict',
-              message: '原文件夹不存在，请选择恢复位置',
-            });
-            continue;
-          }
-          try {
-            await repository.move(entry.nodeId, {
-              parentId,
-              index: resolveRestoreIndex(records, entry, parentId),
-            });
-            await storage.removeRecoveryEntry(entry.nodeId);
-            results.push({
-              id: entry.nodeId,
-              status: 'success',
-              message: '已恢复',
-            });
-          } catch (error) {
-            results.push(createFailure(entry.nodeId, error));
-          }
-        }
-        return { kind: plan.kind, results };
-      }
       return { kind: plan.kind, results: [] };
     },
   };

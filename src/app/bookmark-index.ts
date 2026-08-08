@@ -15,6 +15,7 @@ import {
 export type { SearchResult, SearchScope } from '../domain/search';
 
 export class BookmarkIndex {
+  private static readonly MAX_FUZZY_RESULTS = 20;
   private entries: SearchEntry[] = [];
   private positions = new Map<string, number>();
   private nextOrder = 0;
@@ -112,6 +113,7 @@ export class BookmarkIndex {
     }
 
     if ([...normalizedQuery].length >= 2 && matches.size < resultLimit) {
+      let fuzzyCount = 0;
       for (const fuzzyMatch of this.fuse.search(normalizedQuery)) {
         const entry = fuzzyMatch.item;
         if (!isInScope(entry) || matches.has(entry.node.id)) {
@@ -126,6 +128,13 @@ export class BookmarkIndex {
             reasons: ['fuzzy'],
           }),
         });
+        fuzzyCount += 1;
+        if (
+          fuzzyCount >= BookmarkIndex.MAX_FUZZY_RESULTS ||
+          matches.size >= resultLimit
+        ) {
+          break;
+        }
       }
     }
 

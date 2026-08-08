@@ -111,12 +111,13 @@ function MemberRow({
 }) {
   const display = getBookmarkDisplayInfo(record);
   const path = recordPath(record);
+  const canWrite = !record.isRoot && !record.isUnmodifiable;
   const context = useItemContextMenu(display.displayTitle, [
     { label: '打开', onSelect: () => onOpen(record) },
     { label: '定位', onSelect: () => onLocate(record) },
-    ...(onEdit ? [{ label: '编辑', onSelect: () => onEdit(record) }] : []),
-    ...(onMove ? [{ label: '移动', onSelect: () => onMove(record) }] : []),
-    ...(onDelete ? [{ label: '删除', onSelect: () => onDelete(record), danger: true }] : []),
+    ...(canWrite && onEdit ? [{ label: '编辑', onSelect: () => onEdit(record) }] : []),
+    ...(canWrite && onMove ? [{ label: '移动', onSelect: () => onMove(record) }] : []),
+    ...(canWrite && onDelete ? [{ label: '删除', onSelect: () => onDelete(record), danger: true }] : []),
   ]);
   return (
     <li
@@ -125,7 +126,7 @@ function MemberRow({
       }`}
       onContextMenu={context.onContextMenu}
     >
-      {onSelectionChange && (
+      {onSelectionChange && canWrite && (
         <input
           aria-label={`选择 ${display.displayTitle}`}
           checked={selected}
@@ -153,9 +154,9 @@ function MemberRow({
         >
           <ExternalLink aria-hidden="true" size={17} />
         </button>
-        {onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(record)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
-        {onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(record)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
-        {onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(record)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
+        {canWrite && onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(record)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
+        {canWrite && onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(record)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
+        {canWrite && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(record)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
         <button
           aria-label={`定位 ${display.displayTitle}`}
           className="icon-button"
@@ -490,7 +491,7 @@ export function OrganizeView({
             </button>
           ))}
         </div>
-        <span className="organize-readonly">仅供检查，不会修改书签</span>
+        <span className="organize-readonly">检查结果；操作会直接修改原生书签</span>
       </div>
 
       {activeTab === 'duplicates' && (

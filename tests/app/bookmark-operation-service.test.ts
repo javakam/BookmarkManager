@@ -4,10 +4,6 @@ import { createBookmarkOperationService } from '../../src/app/bookmark-operation
 import { flattenBookmarkTree } from '../../src/domain/tree';
 import type { BrowserBookmarkNode } from '../../src/domain/bookmarks';
 import type { BookmarkRepository } from '../../src/platform/bookmark-repository';
-import {
-  createMemoryBookmarkOperationStorage,
-  type BookmarkRecoveryEntry,
-} from '../../src/platform/bookmark-operation-storage';
 
 function tree(): BrowserBookmarkNode[] {
   return [
@@ -109,7 +105,6 @@ describe('createBookmarkOperationService', () => {
     const repository = repositoryStub();
     const service = createBookmarkOperationService({
       repository,
-      storage: createMemoryBookmarkOperationStorage(),
     });
 
     const bookmarkPlan = service.planCreateBookmark(flattenBookmarkTree(tree()), {
@@ -146,7 +141,6 @@ describe('createBookmarkOperationService', () => {
     );
     const service = createBookmarkOperationService({
       repository,
-      storage: createMemoryBookmarkOperationStorage(),
     });
     const plan = service.planUpdate(flattenBookmarkTree(tree()), 'a', {
       title: 'Local edit',
@@ -165,6 +159,25 @@ describe('createBookmarkOperationService', () => {
     expect(repository.update).not.toHaveBeenCalled();
   });
 
+  it('rejects executable URL schemes when creating or editing a bookmark', () => {
+    const repository = repositoryStub();
+    const service = createBookmarkOperationService({
+      repository,
+    });
+    const records = flattenBookmarkTree(tree());
+
+    expect(() =>
+      service.planCreateBookmark(records, {
+        parentId: 'bar',
+        title: 'Unsafe',
+        url: 'javascript:alert(1)',
+      }),
+    ).toThrow('不支持保存或打开可执行网址协议');
+    expect(() =>
+      service.planUpdate(records, 'a', { url: 'data:text/html,unsafe' }),
+    ).toThrow('不支持保存或打开可执行网址协议');
+  });
+
   it('moves bookmarks in source order and keeps partial failures as item results', async () => {
     const repository = repositoryStub();
     vi.mocked(repository.move).mockImplementation(async (id, destination) => {
@@ -175,7 +188,6 @@ describe('createBookmarkOperationService', () => {
     });
     const service = createBookmarkOperationService({
       repository,
-      storage: createMemoryBookmarkOperationStorage(),
     });
     const plan = service.planMove(flattenBookmarkTree(tree()), ['b', 'a'], {
       parentId: 'folder',
@@ -200,7 +212,6 @@ describe('createBookmarkOperationService', () => {
     const repository = repositoryStub();
     const service = createBookmarkOperationService({
       repository,
-      storage: createMemoryBookmarkOperationStorage(),
     });
     const plan = service.planDelete(flattenBookmarkTree(tree()), ['b', 'a']);
 
@@ -223,94 +234,60 @@ describe('createBookmarkOperationService', () => {
     expect(repository.removeTree).toHaveBeenCalledWith('folder');
   });
 
-  it('quarantines bookmarks through move, creates the native quarantine folder, and stores recovery anchors', async () => {
-    const storage = createMemoryBookmarkOperationStorage();
+  it('does not turn sibling index shifts from its own batch deletes into conflicts', async () => {
+    const nativeTree = tree();
+    const getTree = vi.fn<BookmarkRepository['getTree']>(async () => nativeTree);
+    const repository = repositoryStub(getTree);
+    vi.mocked(repository.remove).mockImplementation(async (id) => {
+      const bar = nativeTree[0]?.children?.[0];
+      if (!bar?.children) {
+        return;
+      }
+      bar.children = bar.children.filter((child) => child.id !== id);
+      bar.children.forEach((child, index) => {
+        child.index = index;
+      });
+    });
+    const service = createBookmarkOperationService({
+      repository,
+    });
+
+    const execution = await service.execute(
+      service.planDelete(flattenBookmarkTree(tree()), ['a', 'b']),
+    );
+
+    expect(execution.results).toEqual([
+      { id: 'a', status: 'success', message: '已删除' },
+      { id: 'b', status: 'success', message: '已删除' },
+    ]);
+    expect(repository.remove).toHaveBeenCalledTimes(2);
+    expect(getTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes a selected folder once when one of its descendants is also selected', async () => {
     const repository = repositoryStub();
     const service = createBookmarkOperationService({
-      now: () => 456,
       repository,
-      storage,
     });
-    const plan = service.planQuarantine(flattenBookmarkTree(tree()), ['a', 'b']);
 
-    const execution = await service.execute(plan);
+    const plan = service.planDelete(flattenBookmarkTree(tree()), ['inside', 'folder']);
 
-    expect(repository.createFolder).toHaveBeenCalledWith({
-      parentId: 'other',
-      title: '待删除（书签工作台）',
-    });
-    expect(repository.remove).not.toHaveBeenCalled();
-    expect(vi.mocked(repository.move).mock.calls.map(([id]) => id)).toEqual([
-      'a',
-      'b',
-    ]);
-    expect(execution.results).toEqual([
-      { id: 'a', status: 'success', message: '已移到待删除' },
-      { id: 'b', status: 'success', message: '已移到待删除' },
-    ]);
-    await expect(storage.loadRecoveryEntries()).resolves.toEqual([
-      {
-        nodeId: 'a',
-        originalParentId: 'bar',
-        originalIndex: 0,
-        nextSiblingId: 'b',
-        quarantinedAt: 456,
-      },
-      {
-        nodeId: 'b',
-        originalParentId: 'bar',
-        originalIndex: 1,
-        previousSiblingId: 'a',
-        nextSiblingId: 'folder',
-        quarantinedAt: 456,
-      },
-    ]);
+    expect(plan.sources.map(({ id }) => id)).toEqual(['folder']);
+    expect(plan.affectedCount).toBe(2);
+    await service.execute(plan);
+    expect(repository.removeTree).toHaveBeenCalledWith('folder');
+    expect(repository.remove).not.toHaveBeenCalledWith('inside');
   });
 
-  it('uses only the quarantine folder under Other Bookmarks when a duplicate title exists elsewhere', async () => {
-    const nativeTree = tree();
-    nativeTree[0]!.children![0]!.children!.push({
-      id: 'wrong-quarantine',
-      parentId: 'bar',
-      index: 3,
-      title: '待删除（书签工作台）',
-      children: [],
-    });
-    nativeTree[0]!.children![1]!.children = [
-      {
-        id: 'right-quarantine',
-        parentId: 'other',
-        index: 0,
-        title: '待删除（书签工作台）',
-        children: [],
-      },
-    ];
-    const repository = repositoryStub(
-      vi.fn<BookmarkRepository['getTree']>().mockResolvedValue(nativeTree),
-    );
-    const service = createBookmarkOperationService({
-      repository,
-      storage: createMemoryBookmarkOperationStorage(),
-    });
-
-    await service.execute(service.planQuarantine(flattenBookmarkTree(tree()), ['a']));
-
-    expect(repository.move).toHaveBeenCalledWith('a', {
-      parentId: 'right-quarantine',
-    });
-  });
-
-  it('rereads the native tree before each batch move item', async () => {
+  it('validates every batch item against one fresh native snapshot', async () => {
     const changedTree = tree();
     changedTree[0]!.children![0]!.children![1]!.title = 'Changed externally';
     const getTree = vi
       .fn<BookmarkRepository['getTree']>()
-      .mockResolvedValueOnce(tree())
-      .mockResolvedValueOnce(changedTree);
+      .mockResolvedValue(changedTree);
     const repository = repositoryStub(getTree);
     const service = createBookmarkOperationService({
       repository,
-      storage: createMemoryBookmarkOperationStorage(),
     });
     const plan = service.planMove(flattenBookmarkTree(tree()), ['a', 'b'], {
       parentId: 'folder',
@@ -328,7 +305,7 @@ describe('createBookmarkOperationService', () => {
       ],
     });
     expect(repository.move).toHaveBeenCalledTimes(1);
-    expect(getTree).toHaveBeenCalledTimes(2);
+    expect(getTree).toHaveBeenCalledTimes(1);
   });
 
   it('conflicts folder reorders when the sibling list changes after preview', async () => {
@@ -345,7 +322,6 @@ describe('createBookmarkOperationService', () => {
     );
     const service = createBookmarkOperationService({
       repository,
-      storage: createMemoryBookmarkOperationStorage(),
     });
     const plan = service.planReorder(flattenBookmarkTree(tree()), 'folder', {
       parentId: 'bar',
@@ -365,92 +341,4 @@ describe('createBookmarkOperationService', () => {
     expect(repository.move).not.toHaveBeenCalled();
   });
 
-  it('does not move to quarantine when the recovery anchor cannot be stored first', async () => {
-    const storage = createMemoryBookmarkOperationStorage();
-    vi.spyOn(storage, 'upsertRecoveryEntry').mockRejectedValue(
-      new Error('storage denied'),
-    );
-    const repository = repositoryStub();
-    const service = createBookmarkOperationService({
-      repository,
-      storage,
-    });
-
-    await expect(
-      service.execute(service.planQuarantine(flattenBookmarkTree(tree()), ['a'])),
-    ).resolves.toEqual({
-      kind: 'quarantine',
-      results: [{ id: 'a', status: 'failure', message: 'storage denied' }],
-    });
-    expect(repository.move).not.toHaveBeenCalled();
-  });
-
-  it('restores using sibling anchors and conflicts when the original parent is gone', async () => {
-    const storage = createMemoryBookmarkOperationStorage();
-    const entry: BookmarkRecoveryEntry = {
-      nodeId: 'a',
-      originalParentId: 'bar',
-      originalIndex: 0,
-      nextSiblingId: 'b',
-      quarantinedAt: 1,
-    };
-    await storage.upsertRecoveryEntry(entry);
-    await storage.saveQuarantineFolderId('quarantine');
-    const nativeTree = tree();
-    nativeTree[0]!.children![0]!.children = [
-      {
-        id: 'b',
-        parentId: 'bar',
-        index: 0,
-        title: '',
-        url: 'https://b.example.test',
-      },
-      {
-        id: 'folder',
-        parentId: 'bar',
-        index: 1,
-        title: 'Folder',
-        children: [
-          {
-            id: 'inside',
-            parentId: 'folder',
-            index: 0,
-            title: 'Inside',
-            url: 'https://inside.example.test',
-          },
-        ],
-      },
-    ];
-    nativeTree[0]!.children![1]!.children = [
-      {
-        id: 'quarantine',
-        parentId: 'other',
-        index: 0,
-        title: '待删除（书签工作台）',
-        children: [
-          {
-            id: 'a',
-            parentId: 'quarantine',
-            index: 0,
-            title: 'A',
-            url: 'https://a.example.test',
-          },
-        ],
-      },
-    ];
-    const repository = repositoryStub(
-      vi.fn<BookmarkRepository['getTree']>().mockResolvedValue(nativeTree),
-    );
-    const service = createBookmarkOperationService({ repository, storage });
-
-    await expect(service.execute(service.planRestore([entry]))).resolves.toEqual({
-      kind: 'restore',
-      results: [{ id: 'a', status: 'success', message: '已恢复' }],
-    });
-    expect(repository.move).toHaveBeenCalledWith('a', {
-      parentId: 'bar',
-      index: 0,
-    });
-    await expect(storage.loadRecoveryEntries()).resolves.toEqual([]);
-  });
 });

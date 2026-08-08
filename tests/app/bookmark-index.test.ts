@@ -120,6 +120,19 @@ describe('BookmarkIndex', () => {
     expect(index.search('docs', { kind: 'all' }, 0)).toEqual([]);
   });
 
+  it('keeps a fuzzy tail from hiding high-confidence search matches', () => {
+    const index = new BookmarkIndex(
+      Array.from({ length: 1000 }, (_, index) =>
+        record(`performance-${index}`, `性能条目 ${index}`),
+      ),
+    );
+
+    const results = index.search('性能条目 999');
+
+    expect(results[0]?.node.title).toBe('性能条目 999');
+    expect(results.length).toBeLessThanOrEqual(21);
+  });
+
   it('keeps equal-score results in refresh tree order', () => {
     const index = new BookmarkIndex([
       record('tree-first', 'Same', { index: 9 }),

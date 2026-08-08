@@ -20,11 +20,10 @@ function operationSummary(plan: BookmarkOperationPlan): string {
     case 'reorder':
       return '将调整 1 个文件夹顺序';
     case 'delete':
-      return `将永久删除 ${plan.sources.length} 项`;
-    case 'quarantine':
-      return `将移到待删除 ${plan.sources.length} 项`;
-    case 'restore':
-      return `将恢复 ${plan.entries.length} 项`;
+      if (plan.affectedCount === plan.sources.length) {
+        return `将永久删除 ${plan.affectedCount} 项`;
+      }
+      return `将永久删除 ${plan.affectedCount} 项（含 ${plan.folderCount} 个文件夹及其内容）`;
   }
 }
 
@@ -34,7 +33,7 @@ export function ConfirmOperationDialog({
   onCancel,
   onConfirm,
 }: ConfirmOperationDialogProps) {
-  const isDestructive = plan.kind === 'quarantine' || plan.kind === 'delete';
+  const isDestructive = plan.kind === 'delete';
 
   return (
     <div aria-labelledby="confirm-operation-title" aria-modal="true" className="dialog-backdrop" role="dialog">
@@ -44,12 +43,10 @@ export function ConfirmOperationDialog({
         </header>
         <p className="operation-summary">{operationSummary(plan)}</p>
         {isDestructive && (
-          <p className="operation-note">
-            {plan.kind === 'delete' ? '删除后无法恢复' : '可恢复'}
-          </p>
+          <p className="operation-note">删除后无法恢复</p>
         )}
         <footer className="dialog-actions">
-          <button className="ghost-button" disabled={disabled} onClick={onCancel} type="button">
+          <button autoFocus className="ghost-button" disabled={disabled} onClick={onCancel} type="button">
             取消
           </button>
           <button className="command-button" disabled={disabled} onClick={onConfirm} type="button">

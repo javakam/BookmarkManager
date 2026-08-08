@@ -1,16 +1,12 @@
 import type { BookmarkRecord } from './bookmarks';
 
-export const QUARANTINE_FOLDER_TITLE = '待删除（书签工作台）';
-
 export type BookmarkOperationKind =
   | 'create-bookmark'
   | 'create-folder'
   | 'update'
   | 'move'
   | 'reorder'
-  | 'delete'
-  | 'quarantine'
-  | 'restore';
+  | 'delete';
 
 export interface BookmarkFingerprint {
   readonly id: string;
@@ -69,19 +65,43 @@ export function compareBookmarkFingerprint(
 export function sortRecordsInBrowserOrder(
   records: readonly BookmarkRecord[],
 ): readonly BookmarkRecord[] {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const orderPath = (record: BookmarkRecord): readonly number[] => {
+    const path: number[] = [];
+    const visited = new Set<string>();
+    let current: BookmarkRecord | undefined = record;
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      path.unshift(current.index);
+      if (current.parentId && !byId.has(current.parentId)) {
+        // Callers may pass only a selected subset. Keep descendants after
+        // complete top-level records when their parent is not in that subset.
+        path.unshift(Number.MAX_SAFE_INTEGER, current.path.length);
+        current = undefined;
+      } else {
+        current = current.parentId ? byId.get(current.parentId) : undefined;
+      }
+    }
+    return path;
+  };
+
   return [...records].sort((left, right) => {
-    const leftPath = left.path.join('\u0000');
-    const rightPath = right.path.join('\u0000');
-    return (
-      leftPath.localeCompare(rightPath) ||
-      (left.parentId ?? '').localeCompare(right.parentId ?? '') ||
-      left.index - right.index ||
-      left.id.localeCompare(right.id)
-    );
+    const leftPath = orderPath(left);
+    const rightPath = orderPath(right);
+    const length = Math.min(leftPath.length, rightPath.length);
+    for (let index = 0; index < length; index += 1) {
+      const difference = (leftPath[index] ?? 0) - (rightPath[index] ?? 0);
+      if (difference !== 0) {
+        return difference;
+      }
+    }
+    return leftPath.length - rightPath.length || left.id.localeCompare(right.id);
   });
 }
 
-export function validateWritableRecord(record: BookmarkRecord): ValidationResult {
+export function validateWritableRecord(
+  record: BookmarkRecord,
+): ValidationResult {
   if (record.isRoot) {
     return { valid: false, reason: '根目录不能移动' };
   }
@@ -124,42 +144,4 @@ export function validateMoveTarget(
   }
 
   return { valid: true };
-}
-
-export function findOtherBookmarksFolder(
-  records: readonly BookmarkRecord[],
-): BookmarkRecord | undefined {
-  return records.find(
-    (record) =>
-      record.isFolder &&
-      !record.isRoot &&
-      (record.folderType === 'other' || record.title === '其他书签'),
-  );
-}
-
-export function findExactQuarantineFolder(
-  records: readonly BookmarkRecord[],
-): BookmarkRecord | undefined {
-  const otherFolder = findOtherBookmarksFolder(records);
-  return records.find(
-    (record) =>
-      record.isFolder &&
-      record.title === QUARANTINE_FOLDER_TITLE &&
-      record.parentId === otherFolder?.id,
-  );
-}
-
-export function isQuarantineFolder(
-  record: BookmarkRecord | undefined,
-  records: readonly BookmarkRecord[],
-): boolean {
-  if (!record) {
-    return false;
-  }
-  const otherFolder = findOtherBookmarksFolder(records);
-  return (
-    record.isFolder &&
-    record.title === QUARANTINE_FOLDER_TITLE &&
-    record.parentId === otherFolder?.id
-  );
 }

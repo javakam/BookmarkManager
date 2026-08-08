@@ -16,7 +16,6 @@ import type {
   BookmarkRepository,
   BookmarkRepositoryChange,
 } from '../../src/platform/bookmark-repository';
-import { createMemoryBookmarkOperationStorage } from '../../src/platform/bookmark-operation-storage';
 
 afterEach(cleanup);
 
@@ -138,7 +137,6 @@ async function renderReady(tree = operationTree()) {
   render(
     <ManagerApp
       openUrl={vi.fn()}
-      operationStorage={createMemoryBookmarkOperationStorage()}
       repository={repository}
     />,
   );

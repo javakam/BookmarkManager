@@ -15,10 +15,6 @@ import type {
   BookmarkRepository,
   BookmarkRepositoryChange,
 } from '../../src/platform/bookmark-repository';
-import {
-  createMemoryBookmarkOperationStorage,
-  type BookmarkOperationStorage,
-} from '../../src/platform/bookmark-operation-storage';
 
 afterEach(cleanup);
 
@@ -47,7 +43,15 @@ function batchTree(): BrowserBookmarkNode[] {
               parentId: 'bar',
               index: 1,
               title: 'Folder A',
-              children: [],
+              children: [
+                {
+                  id: 'inside-folder-a',
+                  parentId: 'folder-a',
+                  index: 0,
+                  title: 'Inside Folder A',
+                  url: 'https://inside-folder-a.example.test',
+                },
+              ],
             },
           ],
         },
@@ -57,23 +61,7 @@ function batchTree(): BrowserBookmarkNode[] {
           index: 1,
           title: '其他书签',
           folderType: 'other',
-          children: [
-            {
-              id: 'quarantine',
-              parentId: 'other',
-              index: 0,
-              title: '待删除（书签工作台）',
-              children: [
-                {
-                  id: 'deleted-a',
-                  parentId: 'quarantine',
-                  index: 0,
-                  title: 'Deleted A',
-                  url: 'https://deleted.example.test',
-                },
-              ],
-            },
-          ],
+          children: [],
         },
       ],
     },
@@ -90,7 +78,7 @@ function repositoryStub(
     getTree: vi.fn().mockResolvedValue(tree),
     createBookmark: vi.fn(),
     createFolder: vi.fn(async (input) => ({
-      id: 'created-quarantine',
+      id: 'created-folder',
       parentId: input.parentId,
       title: input.title,
       children: [],
@@ -103,6 +91,7 @@ function repositoryStub(
       title: id,
     })),
     remove: vi.fn(),
+    removeTree: vi.fn(),
     onChanged(nextListener) {
       listener = nextListener;
       return () => {
@@ -115,19 +104,16 @@ function repositoryStub(
   };
 }
 
-async function renderReady(
-  storage: BookmarkOperationStorage = createMemoryBookmarkOperationStorage(),
-) {
+async function renderReady() {
   const repository = repositoryStub();
   render(
     <ManagerApp
       openUrl={vi.fn()}
-      operationStorage={storage}
       repository={repository}
     />,
   );
   await screen.findByRole('heading', { name: '书签栏' });
-  return { repository, storage };
+  return { repository };
 }
 
 async function confirm() {
@@ -181,6 +167,20 @@ describe('batch bookmark operations', () => {
 
     expect(repository.remove).toHaveBeenCalledWith('a');
     expect(repository.createFolder).not.toHaveBeenCalled();
+  });
+
+  it('shows the recursive impact before deleting a non-empty folder', async () => {
+    const { repository } = await renderReady();
+
+    fireEvent.click(screen.getByRole('button', { name: '删除 Folder A' }));
+
+    expect(
+      await screen.findByText('将永久删除 2 项（含 1 个文件夹及其内容）'),
+    ).toBeTruthy();
+    expect(screen.getByText('删除后无法恢复')).toBeTruthy();
+    await confirm();
+
+    expect(repository.removeTree).toHaveBeenCalledWith('folder-a');
   });
 
 });

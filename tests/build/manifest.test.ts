@@ -15,7 +15,7 @@ type BuiltManifest = {
 };
 
 describe('Chrome MV3 构建产物', () => {
-  it('生成管理器版 Manifest 且不接管新标签页', () => {
+  it('生成管理器版 Manifest 且不申请无用的主机权限', () => {
     const manifestPath = resolve('.output/chrome-mv3/manifest.json');
 
     expect(
@@ -34,13 +34,9 @@ describe('Chrome MV3 构建产物', () => {
     expect(manifest.permissions).toEqual([
       'bookmarks',
       'storage',
-      'activeTab',
       'favicon',
     ]);
-    expect(manifest.optional_host_permissions).toEqual([
-      'http://*/*',
-      'https://*/*',
-    ]);
+    expect(manifest).not.toHaveProperty('optional_host_permissions');
     expect(manifest.action?.default_title).toBe('打开书签工作台');
     expect(manifest).not.toHaveProperty('chrome_url_overrides');
   });

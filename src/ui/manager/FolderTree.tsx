@@ -28,6 +28,7 @@ interface FolderTreeProps {
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
   readonly onDelete?: (record: BookmarkRecord) => void;
+  readonly onInvalidDrop?: () => void;
   readonly onReorder?: (
     sourceId: string,
     anchorId: string,
@@ -47,6 +48,7 @@ type FolderTreeNodeProps = Pick<
   | 'onEdit'
   | 'onMove'
   | 'onDelete'
+  | 'onInvalidDrop'
 > & {
   readonly folder: BookmarkRecord;
   readonly depth: number;
@@ -65,6 +67,7 @@ function FolderTreeNode({
   onEdit,
   onMove,
   onDelete,
+  onInvalidDrop,
 }: FolderTreeNodeProps) {
   const [dropPosition, setDropPosition] = useState<FolderDropPosition>();
   const childFolders = (model.childrenByParentId.get(folder.id) ?? []).filter(
@@ -99,22 +102,28 @@ function FolderTreeNode({
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!canReorder) {
-      return;
-    }
     event.preventDefault();
     setDropPosition(undefined);
     try {
       const payload = JSON.parse(
         event.dataTransfer.getData('application/x-bookmark-folder'),
       ) as { sourceId?: string; parentId?: string };
-      if (payload.parentId === folder.parentId && payload.sourceId) {
+      if (!payload.sourceId) {
+        return;
+      }
+      if (!canReorder) {
+        onInvalidDrop?.();
+        return;
+      }
+      if (payload.parentId === folder.parentId) {
         const bounds = event.currentTarget.getBoundingClientRect();
         const position: FolderDropPosition =
           bounds.height > 0 && event.clientY < bounds.top + bounds.height / 2
             ? 'before'
             : 'after';
         onReorder?.(payload.sourceId, folder.id, position);
+      } else {
+        onInvalidDrop?.();
       }
     } catch {
       // Ignore malformed drops from outside this sidebar.
@@ -130,6 +139,7 @@ function FolderTreeNode({
         draggable={canReorder}
         onContextMenu={context.onContextMenu}
         onDragLeave={() => setDropPosition(undefined)}
+        onDragEnd={() => setDropPosition(undefined)}
         onDragStart={startDrag}
         onDragOver={(event) => {
           if (canReorder) {
@@ -215,6 +225,7 @@ function FolderTreeNode({
               onEdit={onEdit}
               onMove={onMove}
               onDelete={onDelete}
+              onInvalidDrop={onInvalidDrop}
               onSelect={onSelect}
               onToggle={onToggle}
               showFolderCounts={showFolderCounts}

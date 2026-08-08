@@ -26,19 +26,15 @@ import {
   type OrganizeAnalyzers,
 } from '../../app/use-organize-analysis';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import { isDangerousBookmarkUrl } from '../../domain/url-safety';
 import {
   calculateFolderMove,
   type FolderDropPosition,
 } from '../../domain/folder-reorder';
 import {
-  isQuarantineFolder as isNativeQuarantineFolder,
   type BookmarkOperationExecution,
 } from '../../domain/bookmark-operations';
 import type { BookmarkRepository } from '../../platform/bookmark-repository';
-import {
-  createMemoryBookmarkOperationStorage,
-  type BookmarkOperationStorage,
-} from '../../platform/bookmark-operation-storage';
 import {
   DEFAULT_MANAGER_SETTINGS,
   type ManagerSettingsRepository,
@@ -51,22 +47,32 @@ import { MoveBookmarkDialog } from './MoveBookmarkDialog';
 import { OrganizeView } from './OrganizeView';
 import { SearchResults } from './SearchResults';
 import { SettingsView } from './SettingsView';
-import type { BookmarkRecoveryEntry } from '../../platform/bookmark-operation-storage';
 
 type SearchScopeMode = 'all' | 'folder';
 
 export interface ManagerAppProps {
   readonly repository: BookmarkRepository;
   readonly settingsRepository?: ManagerSettingsRepository;
-  readonly operationStorage?: BookmarkOperationStorage;
   readonly openUrl: (url: string) => Promise<void>;
   readonly organizeAnalyzers?: OrganizeAnalyzers;
 }
 
 type EditorState =
-  | { readonly mode: 'create-bookmark'; readonly parentId: string }
-  | { readonly mode: 'create-folder'; readonly parentId: string }
-  | { readonly mode: 'edit'; readonly record: BookmarkRecord };
+  | {
+      readonly mode: 'create-bookmark';
+      readonly parentId: string;
+      readonly records: readonly BookmarkRecord[];
+    }
+  | {
+      readonly mode: 'create-folder';
+      readonly parentId: string;
+      readonly records: readonly BookmarkRecord[];
+    }
+  | {
+      readonly mode: 'edit';
+      readonly record: BookmarkRecord;
+      readonly records: readonly BookmarkRecord[];
+    };
 
 function createDefaultSettingsRepository(): ManagerSettingsRepository {
   let settings = { ...DEFAULT_MANAGER_SETTINGS };
@@ -83,24 +89,20 @@ function createDefaultSettingsRepository(): ManagerSettingsRepository {
 export function ManagerApp({
   repository,
   settingsRepository,
-  operationStorage,
   openUrl,
   organizeAnalyzers,
 }: ManagerAppProps) {
   const data = useBookmarks(repository);
   const [defaultSettingsRepository] = useState(createDefaultSettingsRepository);
-  const [defaultOperationStorage] = useState(createMemoryBookmarkOperationStorage);
   const managerSettings = useManagerSettings(
     settingsRepository ?? defaultSettingsRepository,
   );
-  const resolvedOperationStorage = operationStorage ?? defaultOperationStorage;
   const operationService = useMemo(
     () =>
       createBookmarkOperationService({
         repository,
-        storage: resolvedOperationStorage,
       }),
-    [repository, resolvedOperationStorage],
+    [repository],
   );
   const model = useMemo(
     () => createBookmarkViewModel(data.records),
@@ -123,16 +125,14 @@ export function ManagerApp({
   const [editorState, setEditorState] = useState<EditorState>();
   const [moveRecord, setMoveRecord] = useState<BookmarkRecord>();
   const [moveSourceIds, setMoveSourceIds] = useState<readonly string[]>();
-  const [restoreFallbackEntries, setRestoreFallbackEntries] =
-    useState<readonly BookmarkRecoveryEntry[]>();
+  const [moveRecordsSnapshot, setMoveRecordsSnapshot] = useState<
+    readonly BookmarkRecord[]
+  >();
   const [confirmPlan, setConfirmPlan] = useState<BookmarkOperationPlan>();
   const [operationResult, setOperationResult] =
     useState<BookmarkOperationExecution>();
   const [isExecutingOperation, setIsExecutingOperation] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [recoveryEntries, setRecoveryEntries] = useState<
-    readonly BookmarkRecoveryEntry[]
-  >([]);
   const [locationStatus, setLocationStatus] = useState<string>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const organizeAnalysis = useOrganizeAnalysis(
@@ -159,6 +159,13 @@ export function ManagerApp({
       normalizedQuery ? index.search(normalizedQuery, scope, 200) : [],
     [index, normalizedQuery, scope],
   );
+  const moveModel = useMemo(
+    () =>
+      moveRecordsSnapshot
+        ? createBookmarkViewModel(moveRecordsSnapshot)
+        : model,
+    [model, moveRecordsSnapshot],
+  );
 
   useEffect(() => {
     if (activeFolderId !== resolvedFolderId) {
@@ -178,6 +185,10 @@ export function ManagerApp({
   }, [resolvedFolderId]);
 
   useEffect(() => {
+    setSelectedIds(new Set());
+  }, [normalizedQuery, scopeMode]);
+
+  useEffect(() => {
     setSelectedIds((current) => {
       const next = new Set(
         [...current].filter((id) => model.recordById.has(id)),
@@ -185,18 +196,6 @@ export function ManagerApp({
       return next.size === current.size ? current : next;
     });
   }, [model]);
-
-  useEffect(() => {
-    let isActive = true;
-    void resolvedOperationStorage.loadRecoveryEntries().then((entries) => {
-      if (isActive) {
-        setRecoveryEntries(entries);
-      }
-    });
-    return () => {
-      isActive = false;
-    };
-  }, [data.revision, resolvedOperationStorage]);
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -213,6 +212,9 @@ export function ManagerApp({
 
   useEffect(() => {
     if (!operationResult) return;
+    if (operationResult.results.some((result) => result.status !== 'success')) {
+      return;
+    }
     const timer = window.setTimeout(() => setOperationResult(undefined), 2600);
     return () => window.clearTimeout(timer);
   }, [operationResult]);
@@ -252,6 +254,10 @@ export function ManagerApp({
   const handleOpen = useCallback(
     async (record: BookmarkRecord) => {
       if (!record.url) {
+        return;
+      }
+      if (isDangerousBookmarkUrl(record.url)) {
+        setOpenError('出于安全原因，不能打开可执行网址协议');
         return;
       }
       setOpenError(undefined);
@@ -296,31 +302,88 @@ export function ManagerApp({
     setEditorState(undefined);
     setMoveRecord(undefined);
     setMoveSourceIds(undefined);
-    setRestoreFallbackEntries(undefined);
+    setMoveRecordsSnapshot(undefined);
     setConfirmPlan(undefined);
     setOperationError(undefined);
   }, []);
+
+  useEffect(() => {
+    if (!editorState && !moveRecord && !moveSourceIds && !confirmPlan) {
+      return;
+    }
+    const handleDialogKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      event.preventDefault();
+      clearOperationUi();
+    };
+    document.addEventListener('keydown', handleDialogKeyboard);
+    return () => document.removeEventListener('keydown', handleDialogKeyboard);
+  }, [clearOperationUi, confirmPlan, editorState, moveRecord, moveSourceIds]);
+
+  const openEditor = useCallback(
+    (next: EditorState['mode'], value: string | BookmarkRecord) => {
+      if (next === 'edit') {
+        setEditorState({
+          mode: 'edit',
+          record: value as BookmarkRecord,
+          records: data.records,
+        });
+        return;
+      }
+      setEditorState({
+        mode: next,
+        parentId: value as string,
+        records: data.records,
+      });
+    },
+    [data.records],
+  );
+
+  const startMove = useCallback(
+    (record: BookmarkRecord) => {
+      setMoveRecord(record);
+      setMoveSourceIds(undefined);
+      setMoveRecordsSnapshot(data.records);
+    },
+    [data.records],
+  );
+
+  const startMoveSelection = useCallback(
+    (ids: readonly string[]) => {
+      setMoveRecord(undefined);
+      setMoveSourceIds([...ids]);
+      setMoveRecordsSnapshot(data.records);
+    },
+    [data.records],
+  );
 
   const previewCreateOrEdit = useCallback(
     (input: { title: string; url?: string }) => {
       if (!editorState) {
         return;
       }
+      if (data.isImporting) {
+        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
+        return;
+      }
       try {
         let plan: BookmarkOperationPlan;
+        const records = editorState.records;
         if (editorState.mode === 'create-bookmark') {
-          plan = operationService.planCreateBookmark(data.records, {
+          plan = operationService.planCreateBookmark(records, {
             parentId: editorState.parentId,
             title: input.title,
             url: input.url ?? '',
           });
         } else if (editorState.mode === 'create-folder') {
-          plan = operationService.planCreateFolder(data.records, {
+          plan = operationService.planCreateFolder(records, {
             parentId: editorState.parentId,
             title: input.title,
           });
         } else {
-          plan = operationService.planUpdate(data.records, editorState.record.id, {
+          plan = operationService.planUpdate(records, editorState.record.id, {
             title: input.title,
             ...(editorState.record.isFolder ? {} : { url: input.url ?? '' }),
           });
@@ -332,27 +395,15 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.records, editorState, operationService],
+    [data.isImporting, editorState, operationService],
   );
 
   const previewMove = useCallback(
     (targetFolderId: string) => {
-      if (restoreFallbackEntries) {
-        try {
-          setRestoreFallbackEntries(undefined);
-          setConfirmPlan(
-            operationService.planRestore(
-              restoreFallbackEntries,
-              targetFolderId,
-            ),
-          );
-          setOperationError(undefined);
-        } catch (error) {
-          setOperationError(error instanceof Error ? error.message : String(error));
-        }
+      if (data.isImporting) {
+        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
         return;
       }
-
       const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
       if (!ids || ids.length === 0) {
         return;
@@ -360,8 +411,10 @@ export function ManagerApp({
       try {
         setMoveRecord(undefined);
         setMoveSourceIds(undefined);
+        const records = moveRecordsSnapshot ?? data.records;
+        setMoveRecordsSnapshot(undefined);
         setConfirmPlan(
-          operationService.planMove(data.records, ids, {
+          operationService.planMove(records, ids, {
             parentId: targetFolderId,
           }),
         );
@@ -371,16 +424,21 @@ export function ManagerApp({
       }
     },
     [
+      data.isImporting,
       data.records,
       moveRecord,
+      moveRecordsSnapshot,
       moveSourceIds,
       operationService,
-      restoreFallbackEntries,
     ],
   );
 
   const previewDelete = useCallback(
     (record: BookmarkRecord) => {
+      if (data.isImporting) {
+        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
+        return;
+      }
       try {
         setConfirmPlan(operationService.planDelete(data.records, [record.id]));
         setOperationError(undefined);
@@ -393,6 +451,10 @@ export function ManagerApp({
 
   const previewFolderReorder = useCallback(
     (sourceId: string, anchorId: string, position: FolderDropPosition) => {
+      if (data.isImporting) {
+        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
+        return;
+      }
       const source = model.recordById.get(sourceId);
       if (!source?.parentId) {
         return;
@@ -416,11 +478,15 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.records, model, operationService],
+    [data.isImporting, data.records, model, operationService],
   );
 
   const executeConfirmedPlan = useCallback(async () => {
     if (!confirmPlan) {
+      return;
+    }
+    if (data.isImporting) {
+      setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
       return;
     }
     setIsExecutingOperation(true);
@@ -440,53 +506,38 @@ export function ManagerApp({
         );
         return next;
       });
-      setRecoveryEntries(await resolvedOperationStorage.loadRecoveryEntries());
       await data.refresh();
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsExecutingOperation(false);
     }
-  }, [confirmPlan, data, operationService, resolvedOperationStorage]);
+  }, [confirmPlan, data, operationService]);
 
   const writableMoveTargets = useMemo(() => {
-    if (restoreFallbackEntries) {
-      return model.searchableRecords.filter(
-        (record) =>
-          record.isFolder &&
-          !record.isRoot &&
-          !record.isUnmodifiable &&
-          !isNativeQuarantineFolder(record, data.records),
-      );
-    }
-
+    const operationModel = moveModel;
     const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
     if (!ids || ids.length === 0) {
       return [];
     }
     const blockedIds = new Set<string>();
     for (const id of ids) {
-      const source = model.recordById.get(id);
+      const source = operationModel.recordById.get(id);
       if (source?.isFolder) {
         blockedIds.add(source.id);
-        for (const descendantId of model.getDescendantIds(source.id)) {
+        for (const descendantId of operationModel.getDescendantIds(source.id)) {
           blockedIds.add(descendantId);
         }
       }
     }
-    return model.searchableRecords.filter(
+    return operationModel.searchableRecords.filter(
       (record) =>
         record.isFolder &&
         !record.isRoot &&
         !record.isUnmodifiable &&
         !blockedIds.has(record.id),
     );
-  }, [data.records, model, moveRecord, moveSourceIds, restoreFallbackEntries]);
-
-  const selectedRecoveryEntries = useMemo(() => {
-    const selected = selectedIds;
-    return recoveryEntries.filter((entry) => selected.has(entry.nodeId));
-  }, [recoveryEntries, selectedIds]);
+  }, [moveModel, moveRecord, moveSourceIds]);
 
   const toggleSelection = useCallback(
     (record: BookmarkRecord, selected: boolean) => {
@@ -504,6 +555,10 @@ export function ManagerApp({
   );
 
   const previewBatchDelete = useCallback(() => {
+    if (data.isImporting) {
+      setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
+      return;
+    }
     try {
       setConfirmPlan(
         operationService.planDelete(data.records, [...selectedIds]),
@@ -512,10 +567,14 @@ export function ManagerApp({
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     }
-  }, [data.records, operationService, selectedIds]);
+  }, [data.isImporting, data.records, operationService, selectedIds]);
 
   const previewOrganizeDelete = useCallback(
     (records: readonly BookmarkRecord[]) => {
+      if (data.isImporting) {
+        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
+        return;
+      }
       try {
         setConfirmPlan(
           operationService.planDelete(
@@ -528,27 +587,8 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.records, operationService],
+    [data.isImporting, data.records, operationService],
   );
-
-  const previewBatchRestore = useCallback(() => {
-    const needsFallback = selectedRecoveryEntries.some((entry) => {
-      const parent = model.recordById.get(entry.originalParentId);
-      return !parent?.isFolder;
-    });
-    if (needsFallback) {
-      setRestoreFallbackEntries(selectedRecoveryEntries);
-      setOperationError(undefined);
-      return;
-    }
-
-    try {
-      setConfirmPlan(operationService.planRestore(selectedRecoveryEntries));
-      setOperationError(undefined);
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
-    }
-  }, [model, operationService, selectedRecoveryEntries]);
 
   const bookmarkCount = model.searchableRecords.filter(
     (record) => !record.isFolder,
@@ -594,13 +634,13 @@ export function ManagerApp({
           analysis={organizeAnalysis.analysis}
           onDelete={previewDelete}
           onDeleteSelection={previewOrganizeDelete}
-          onEdit={(record) => setEditorState({ mode: 'edit', record })}
+          onEdit={(record) => openEditor('edit', record)}
           onLocateBookmark={locate}
           onLocateFolder={locateFolder}
           onMoveSelection={(records) =>
-            setMoveSourceIds(records.map(({ id }) => id))
+            startMoveSelection(records.map(({ id }) => id))
           }
-          onMove={setMoveRecord}
+          onMove={startMove}
           onOpen={(record) => void handleOpen(record)}
         />
       );
@@ -627,10 +667,10 @@ export function ManagerApp({
     content = (
       <SearchResults
         onDelete={previewDelete}
-        onEdit={(record) => setEditorState({ mode: 'edit', record })}
+        onEdit={(record) => openEditor('edit', record)}
         onEnterFolder={enterSearchFolder}
         onLocate={locate}
-        onMove={setMoveRecord}
+        onMove={startMove}
         onOpen={(record) => void handleOpen(record)}
         results={results}
       />
@@ -642,18 +682,18 @@ export function ManagerApp({
         highlightedId={highlightedId}
         model={model}
         onCreateBookmark={(parentId) =>
-          setEditorState({ mode: 'create-bookmark', parentId })
+          openEditor('create-bookmark', parentId)
         }
         onCreateFolder={(parentId) =>
-          setEditorState({ mode: 'create-folder', parentId })
+          openEditor('create-folder', parentId)
         }
-        onEdit={(record) => setEditorState({ mode: 'edit', record })}
+        onEdit={(record) => openEditor('edit', record)}
         onNavigate={navigate}
-        onMove={setMoveRecord}
+        onMove={startMove}
         onOpen={(record) => void handleOpen(record)}
         onDelete={previewDelete}
         onDeleteSelection={previewBatchDelete}
-        onMoveSelection={() => setMoveSourceIds([...selectedIds])}
+        onMoveSelection={() => startMoveSelection([...selectedIds])}
         onSelectionChange={toggleSelection}
         selectedIds={selectedIds}
       />
@@ -744,8 +784,9 @@ export function ManagerApp({
             setView('browse');
           }}
           onReorder={previewFolderReorder}
-          onEdit={(record) => setEditorState({ mode: 'edit', record })}
-          onMove={setMoveRecord}
+          onInvalidDrop={() => setOperationError('只能在同一层级调整文件夹顺序')}
+          onEdit={(record) => openEditor('edit', record)}
+          onMove={startMove}
           onDelete={previewDelete}
           onToggle={(folderId) => {
             setExpandedFolderIds((current) => {
@@ -763,6 +804,11 @@ export function ManagerApp({
           view={view}
         />
         <main className="app-main">
+          {data.isImporting && (
+            <div className="inline-warning" role="status">
+              浏览器正在导入书签，写操作已暂停；导入完成后会自动刷新。
+            </div>
+          )}
           {data.status === 'error' && data.records.length > 0 && (
             <div className="inline-error" role="alert">
               {data.error || '刷新书签失败'}
@@ -783,27 +829,51 @@ export function ManagerApp({
           record={editorState.mode === 'edit' ? editorState.record : undefined}
         />
       )}
-      {(moveRecord || moveSourceIds || restoreFallbackEntries) && (
+      {(moveRecord || moveSourceIds) && (
         <MoveBookmarkDialog
           folders={writableMoveTargets}
-          model={model}
+          model={moveModel}
           onCancel={clearOperationUi}
           onPreview={previewMove}
         />
       )}
       {confirmPlan && (
         <ConfirmOperationDialog
-          disabled={isExecutingOperation}
+          disabled={isExecutingOperation || data.isImporting}
           onCancel={clearOperationUi}
           onConfirm={() => void executeConfirmedPlan()}
           plan={confirmPlan}
         />
       )}
       {operationResult && (
-        <div aria-label="操作提示" className="operation-toast" role={operationResult.results.some((result) => result.status !== 'success') ? 'alert' : 'status'}>
-          {operationResult.results.every((result) => result.status === 'success')
-            ? operationResult.results[0]?.message ?? '操作成功'
-            : operationResult.results.map((result) => result.message).join('；')}
+        <div
+          aria-label="操作提示"
+          className="operation-toast"
+          role={operationResult.results.some((result) => result.status !== 'success') ? 'alert' : 'status'}
+        >
+          <div className="operation-toast__summary">
+            {operationResult.results.every((result) => result.status === 'success')
+              ? operationResult.results[0]?.message ?? '操作成功'
+              : `已完成 ${operationResult.results.filter((result) => result.status === 'success').length} 项，${operationResult.results.filter((result) => result.status === 'conflict').length} 项冲突，${operationResult.results.filter((result) => result.status === 'failure').length} 项失败`}
+          </div>
+          {operationResult.results.some((result) => result.status !== 'success') && (
+            <ul className="operation-toast__details">
+              {operationResult.results
+                .filter((result) => result.status !== 'success')
+                .map((result) => (
+                  <li key={result.id}>{result.id}：{result.message}</li>
+                ))}
+            </ul>
+          )}
+          <button
+            aria-label="关闭操作提示"
+            className="operation-toast__close"
+            onClick={() => setOperationResult(undefined)}
+            title="关闭操作提示"
+            type="button"
+          >
+            <X aria-hidden="true" size={15} />
+          </button>
         </div>
       )}
     </div>

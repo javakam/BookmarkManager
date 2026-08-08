@@ -16,9 +16,20 @@ createRoot(root).render(
     <Popup
       closePopup={() => window.close()}
       openManager={async () => {
-        await browser.tabs.create({
-          url: browser.runtime.getURL('/manager.html'),
-        });
+        const url = browser.runtime.getURL('/manager.html');
+        try {
+          const existing = await browser.tabs.query({ url });
+          const existingTab = existing.find((tab) => tab.id !== undefined);
+          if (existingTab?.id !== undefined) {
+            await browser.tabs.update(existingTab.id, { active: true });
+            return;
+          }
+        } catch {
+          // Some Chromium policies require the tabs permission for querying
+          // URLs. Keep opening the manager even when that optional reuse path
+          // is unavailable.
+        }
+        await browser.tabs.create({ url });
       }}
     />
   </StrictMode>,

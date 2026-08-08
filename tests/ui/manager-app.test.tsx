@@ -308,6 +308,35 @@ describe('ManagerApp browse shell', () => {
     expect(await screen.findByRole('heading', { name: '书签栏' })).toBeTruthy();
   });
 
+  it('keeps the edit snapshot and reports a conflict after an external change', async () => {
+    const nativeTree = managerTree();
+    const repository = repositoryStub(
+      vi.fn<BookmarkRepository['getTree']>().mockResolvedValue(nativeTree),
+    );
+    render(<ManagerApp openUrl={vi.fn()} repository={repository} />);
+    await screen.findByRole('heading', { name: '书签栏' });
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Zeta' }));
+    const titleInput = screen.getByRole('textbox', { name: '标题' });
+    fireEvent.change(titleInput, { target: { value: '本地修改' } });
+
+    const zeta = nativeTree[0]?.children?.[0]?.children?.[0];
+    if (!zeta) {
+      throw new Error('missing test bookmark');
+    }
+    zeta.title = '浏览器外部修改';
+    repository.emitChanged();
+
+    fireEvent.submit(titleInput.closest('form') as HTMLFormElement);
+    expect(await screen.findByText('将更新 1 项')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      '书签已在浏览器中变化，请刷新后重试',
+    );
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
   it('starts in the bookmarks bar, hides its synthetic root, and keeps index order', async () => {
     await renderReady();
 
@@ -542,12 +571,31 @@ describe('ManagerApp browse shell', () => {
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
     fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
 
-    fireEvent.contextMenu(within(sidebar).getByRole('button', { name: 'Folder A' }));
-    expect(screen.getByRole('menu', { name: 'Folder A 操作' })).toBeTruthy();
+    fireEvent.contextMenu(within(sidebar).getByRole('button', { name: 'Folder A' }), {
+      clientX: 9999,
+      clientY: 9999,
+    });
+    const firstMenu = screen.getByRole('menu', { name: 'Folder A 操作' });
+    expect(firstMenu).toBeTruthy();
+    expect(Number.parseInt(firstMenu.getAttribute('style')?.match(/left:\s*([^;]+)/)?.[1] ?? '0', 10)).toBeLessThan(window.innerWidth);
+    expect(document.activeElement?.getAttribute('role')).toBe('menuitem');
+    fireEvent.scroll(window);
+    expect(screen.queryByRole('menu', { name: 'Folder A 操作' })).toBeNull();
 
     fireEvent.contextMenu(within(sidebar).getByRole('button', { name: '其他书签' }));
     expect(screen.queryByRole('menu', { name: 'Folder A 操作' })).toBeNull();
     expect(screen.getByRole('menu', { name: '其他书签 操作' })).toBeTruthy();
+  });
+
+  it('closes an operation dialog with Escape and restores the browse surface', async () => {
+    await renderReady(managerTree());
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Zeta' }));
+    expect(screen.getByRole('dialog', { name: '编辑书签' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: '编辑书签' })).toBeNull();
+    expect(screen.getByRole('heading', { name: '书签栏' })).toBeTruthy();
   });
 });
 
@@ -703,6 +751,22 @@ describe('ManagerApp search', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开 Zeta' }));
 
     expect(await screen.findByText('无法打开新标签页')).toBeTruthy();
+  });
+
+  it('blocks executable bookmark URL schemes before opening a new tab', async () => {
+    const tree = managerTree();
+    const zeta = tree[0]?.children?.[0]?.children?.[0];
+    if (!zeta) {
+      throw new Error('missing test bookmark');
+    }
+    zeta.url = 'data:text/html,<script>alert(1)</script>';
+    const openUrl = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined);
+    await renderReady(tree, openUrl);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 Zeta' }));
+
+    expect(await screen.findByText('出于安全原因，不能打开可执行网址协议')).toBeTruthy();
+    expect(openUrl).not.toHaveBeenCalled();
   });
 });
 
