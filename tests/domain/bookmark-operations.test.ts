@@ -6,6 +6,7 @@ import {
   createBookmarkFingerprint,
   sortRecordsInBrowserOrder,
   validateMoveTarget,
+  validateWritableRecord,
 } from '../../src/domain/bookmark-operations';
 
 function record(
@@ -128,6 +129,27 @@ describe('validateMoveTarget', () => {
     expect(validateMoveTarget([root, bar, record('bookmark')], record('bookmark'), 'bar')).toEqual({
       valid: true,
     });
+  });
+
+  it('rejects system folders as sources while keeping them valid targets', () => {
+    const systemFolder = record('system', {
+      parentId: 'root',
+      url: undefined,
+      isFolder: true,
+      folderType: 'bookmarks-bar',
+    });
+
+    expect(validateWritableRecord(systemFolder)).toEqual({
+      valid: false,
+      reason: '系统文件夹不能修改',
+    });
+    expect(
+      validateMoveTarget(
+        [systemFolder, record('bookmark')],
+        record('bookmark'),
+        'system',
+      ),
+    ).toEqual({ valid: true });
   });
 });
 

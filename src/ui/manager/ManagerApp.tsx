@@ -308,7 +308,10 @@ export function ManagerApp({
   }, []);
 
   useEffect(() => {
-    if (!editorState && !moveRecord && !moveSourceIds && !confirmPlan) {
+    if (
+      isExecutingOperation ||
+      (!editorState && !moveRecord && !moveSourceIds && !confirmPlan)
+    ) {
       return;
     }
     const handleDialogKeyboard = (event: KeyboardEvent) => {
@@ -320,7 +323,14 @@ export function ManagerApp({
     };
     document.addEventListener('keydown', handleDialogKeyboard);
     return () => document.removeEventListener('keydown', handleDialogKeyboard);
-  }, [clearOperationUi, confirmPlan, editorState, moveRecord, moveSourceIds]);
+  }, [
+    clearOperationUi,
+    confirmPlan,
+    editorState,
+    isExecutingOperation,
+    moveRecord,
+    moveSourceIds,
+  ]);
 
   const openEditor = useCallback(
     (next: EditorState['mode'], value: string | BookmarkRecord) => {
@@ -538,6 +548,22 @@ export function ManagerApp({
         !blockedIds.has(record.id),
     );
   }, [moveModel, moveRecord, moveSourceIds]);
+
+  const preferredMoveTargetId = useMemo(() => {
+    const ids = moveSourceIds ?? (moveRecord ? [moveRecord.id] : undefined);
+    if (!ids || ids.length === 0) {
+      return undefined;
+    }
+    const sourceParentIds = new Set(
+      ids
+        .map((id) => moveModel.recordById.get(id)?.parentId)
+        .filter((id): id is string => id !== undefined),
+    );
+    return (
+      writableMoveTargets.find((folder) => !sourceParentIds.has(folder.id))?.id ??
+      writableMoveTargets[0]?.id
+    );
+  }, [moveModel, moveRecord, moveSourceIds, writableMoveTargets]);
 
   const toggleSelection = useCallback(
     (record: BookmarkRecord, selected: boolean) => {
@@ -833,6 +859,7 @@ export function ManagerApp({
         <MoveBookmarkDialog
           folders={writableMoveTargets}
           model={moveModel}
+          preferredFolderId={preferredMoveTargetId}
           onCancel={clearOperationUi}
           onPreview={previewMove}
         />

@@ -219,6 +219,9 @@ describe('single bookmark operations', () => {
     expect(options).toContain('其他书签');
     expect(options).not.toContain('Folder A');
     expect(options).not.toContain('Nested');
+    expect(
+      (within(dialog).getByLabelText('目标文件夹') as HTMLSelectElement).value,
+    ).toBe('other');
 
     fireEvent.change(within(dialog).getByLabelText('目标文件夹'), {
       target: { value: 'other' },

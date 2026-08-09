@@ -11,6 +11,32 @@ if (!root) {
   throw new Error('找不到弹窗根节点');
 }
 
+interface RuntimeContext {
+  readonly tabId?: number;
+}
+
+interface RuntimeContextsApi {
+  readonly getContexts?: (filter: {
+    readonly contextTypes: readonly string[];
+    readonly documentUrls: readonly string[];
+  }) => Promise<readonly RuntimeContext[]>;
+}
+
+async function findExistingManagerTab(url: string): Promise<number | undefined> {
+  const runtime = browser.runtime as typeof browser.runtime & RuntimeContextsApi;
+  const contexts = await runtime.getContexts?.({
+    contextTypes: ['TAB'],
+    documentUrls: [url],
+  });
+  const contextTab = contexts?.find((context) => context.tabId !== undefined);
+  if (contextTab?.tabId !== undefined) {
+    return contextTab.tabId;
+  }
+
+  const existing = await browser.tabs.query({ url });
+  return existing.find((tab) => tab.id !== undefined)?.id;
+}
+
 createRoot(root).render(
   <StrictMode>
     <Popup
@@ -18,10 +44,9 @@ createRoot(root).render(
       openManager={async () => {
         const url = browser.runtime.getURL('/manager.html');
         try {
-          const existing = await browser.tabs.query({ url });
-          const existingTab = existing.find((tab) => tab.id !== undefined);
-          if (existingTab?.id !== undefined) {
-            await browser.tabs.update(existingTab.id, { active: true });
+          const existingTabId = await findExistingManagerTab(url);
+          if (existingTabId !== undefined) {
+            await browser.tabs.update(existingTabId, { active: true });
             return;
           }
         } catch {

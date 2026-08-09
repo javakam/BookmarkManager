@@ -3,6 +3,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
 
 import type { OrganizeAnalysis } from '../../app/use-organize-analysis';
 import { getBookmarkDisplayInfo } from '../../app/bookmark-view-model';
+import { validateWritableRecord } from '../../domain/bookmark-operations';
 import type {
   DuplicateClassification,
   DuplicateConfidence,
@@ -111,7 +112,7 @@ function MemberRow({
 }) {
   const display = getBookmarkDisplayInfo(record);
   const path = recordPath(record);
-  const canWrite = !record.isRoot && !record.isUnmodifiable;
+  const canWrite = validateWritableRecord(record).valid;
   const context = useItemContextMenu(display.displayTitle, [
     { label: '打开', onSelect: () => onOpen(record) },
     { label: '定位', onSelect: () => onLocate(record) },

@@ -108,6 +108,9 @@ export function validateWritableRecord(
   if (record.isUnmodifiable) {
     return { valid: false, reason: '只读书签不能修改' };
   }
+  if (record.isFolder && record.folderType !== 'unknown') {
+    return { valid: false, reason: '系统文件夹不能修改' };
+  }
   return { valid: true };
 }
 

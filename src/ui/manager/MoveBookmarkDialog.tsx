@@ -9,6 +9,7 @@ import type { BookmarkRecord } from '../../domain/bookmarks';
 interface MoveBookmarkDialogProps {
   readonly folders: readonly BookmarkRecord[];
   readonly model: BookmarkViewModel;
+  readonly preferredFolderId?: string;
   readonly onCancel: () => void;
   readonly onPreview: (targetFolderId: string) => void;
 }
@@ -23,10 +24,15 @@ function folderPathLabel(model: BookmarkViewModel, folder: BookmarkRecord): stri
 export function MoveBookmarkDialog({
   folders,
   model,
+  preferredFolderId,
   onCancel,
   onPreview,
 }: MoveBookmarkDialogProps) {
-  const [targetFolderId, setTargetFolderId] = useState(folders[0]?.id ?? '');
+  const initialTargetFolderId =
+    preferredFolderId && folders.some((folder) => folder.id === preferredFolderId)
+      ? preferredFolderId
+      : folders[0]?.id ?? '';
+  const [targetFolderId, setTargetFolderId] = useState(initialTargetFolderId);
 
   return (
     <div aria-labelledby="move-dialog-title" aria-modal="true" className="dialog-backdrop" role="dialog">

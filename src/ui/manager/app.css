@@ -1250,6 +1250,18 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   .folder-tree__count-separator {
     display: none;
   }
+
+  .organize-member-row {
+    grid-template-columns: 28px minmax(100px, 0.8fr) minmax(120px, 1fr) 168px;
+  }
+
+  .organize-member-row--selectable {
+    grid-template-columns: 20px 28px minmax(100px, 0.8fr) minmax(120px, 1fr) 168px;
+  }
+
+  .organize-member-path {
+    display: none;
+  }
 }
 
 @media (max-width: 760px) {

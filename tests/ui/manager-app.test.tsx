@@ -597,6 +597,36 @@ describe('ManagerApp browse shell', () => {
     expect(screen.queryByRole('dialog', { name: '编辑书签' })).toBeNull();
     expect(screen.getByRole('heading', { name: '书签栏' })).toBeTruthy();
   });
+
+  it('keeps the confirmation dialog open while an operation is executing', async () => {
+    const { repository } = await renderReady();
+    const update = deferred<BrowserBookmarkNode>();
+    vi.mocked(repository.update).mockReturnValue(update.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Zeta' }));
+    const titleInput = screen.getByRole('textbox', { name: '标题' });
+    fireEvent.change(titleInput, { target: { value: '执行中的修改' } });
+    fireEvent.submit(titleInput.closest('form') as HTMLFormElement);
+    expect(await screen.findByRole('dialog', { name: '确认操作' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
+    expect(screen.getByRole('dialog', { name: '确认操作' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: '确认操作' })).toBeTruthy();
+
+    await act(async () => {
+      update.resolve({
+        id: 'zeta',
+        parentId: 'bar',
+        index: 0,
+        title: '执行中的修改',
+        url: 'https://zeta.example.test',
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '确认操作' })).toBeNull();
+    });
+  });
 });
 
 describe('ManagerApp settings', () => {

@@ -6,6 +6,7 @@ import {
   type BookmarkViewModel,
 } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import { validateWritableRecord } from '../../domain/bookmark-operations';
 import { BookmarkRow } from './BookmarkRow';
 import { useItemContextMenu } from './useItemContextMenu';
 
@@ -61,7 +62,7 @@ export function BrowseView({
   const children = model.childrenByParentId.get(activeFolderId) ?? [];
   const visibleChildren = children.slice(0, visibleLimit);
   const selectableChildren = children.filter(
-    (record) => !record.isRoot && !record.isUnmodifiable,
+    (record) => validateWritableRecord(record).valid,
   );
   const selectedCount = selectableChildren.filter((record) =>
     selectedIds?.has(record.id),
@@ -153,8 +154,7 @@ export function BrowseView({
                 onSelectionChange={onSelectionChange}
                 record={record}
                 selectable={
-                  !record.isRoot &&
-                  !record.isUnmodifiable
+                  validateWritableRecord(record).valid
                 }
                 selected={selectedIds?.has(record.id) ?? false}
               />

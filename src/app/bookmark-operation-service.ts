@@ -52,6 +52,8 @@ type MovePlan = PlanBase & {
 type DeletePlan = PlanBase & {
   readonly kind: 'delete';
   readonly sources: readonly BookmarkFingerprint[];
+  /** Full subtree snapshot used to protect recursive permanent deletion. */
+  readonly affected: readonly BookmarkFingerprint[];
   readonly affectedCount: number;
   readonly folderCount: number;
   readonly bookmarkCount: number;
@@ -184,7 +186,12 @@ function collectSources(
 function deleteImpact(
   records: readonly BookmarkRecord[],
   sources: readonly BookmarkRecord[],
-): { readonly affectedCount: number; readonly folderCount: number; readonly bookmarkCount: number } {
+): {
+  readonly records: readonly BookmarkRecord[];
+  readonly affectedCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
+} {
   const childrenByParentId = new Map<string, BookmarkRecord[]>();
   for (const record of records) {
     if (!record.parentId) {
@@ -210,10 +217,50 @@ function deleteImpact(
 
   const folderCount = [...affected.values()].filter((record) => record.isFolder).length;
   return {
+    records: [...affected.values()],
     affectedCount: affected.size,
     folderCount,
     bookmarkCount: affected.size - folderCount,
   };
+}
+
+function collectCurrentDeleteRecords(
+  records: readonly BookmarkRecord[],
+  sources: readonly BookmarkFingerprint[],
+): readonly BookmarkRecord[] {
+  const byId = recordsById(records);
+  const sourceIds = new Set(sources.map((source) => source.id));
+
+  return records.filter((record) => {
+    let current: BookmarkRecord | undefined = record;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (sourceIds.has(current.id)) {
+        return true;
+      }
+      visited.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+    return false;
+  });
+}
+
+function matchesDeleteSnapshot(
+  records: readonly BookmarkRecord[],
+  plan: DeletePlan,
+): boolean {
+  const currentAffected = collectCurrentDeleteRecords(records, plan.sources);
+  if (currentAffected.length !== plan.affected.length) {
+    return false;
+  }
+  const currentById = recordsById(currentAffected);
+  return plan.affected.every((expected) => {
+    const current = currentById.get(expected.id);
+    return Boolean(
+      current &&
+        compareBookmarkFingerprint(expected, createBookmarkFingerprint(current)),
+    );
+  });
 }
 
 function removeNestedDeleteSources(
@@ -360,11 +407,15 @@ export function createBookmarkOperationService({
           throw new Error(writable.reason);
         }
       }
+      const impact = deleteImpact(records, sources);
       return {
         ...makePlanBase('delete'),
         kind: 'delete',
         sources: sources.map(createBookmarkFingerprint),
-        ...deleteImpact(records, sources),
+        affected: impact.records.map(createBookmarkFingerprint),
+        affectedCount: impact.affectedCount,
+        folderCount: impact.folderCount,
+        bookmarkCount: impact.bookmarkCount,
       };
     },
     async execute(plan) {
@@ -516,16 +567,17 @@ export function createBookmarkOperationService({
         // fingerprints before mutating the tree so a valid batch is not
         // rejected merely because an earlier deletion changed those indexes.
         const records = await readFreshRecords();
-        const byId = recordsById(records);
-        for (const source of plan.sources) {
-          if (!requireCurrentFingerprint(byId, source)) {
-            results.push({
+        if (!matchesDeleteSnapshot(records, plan)) {
+          return {
+            kind: plan.kind,
+            results: plan.sources.map((source) => ({
               id: source.id,
-              status: 'conflict',
+              status: 'conflict' as const,
               message: CONFLICT_MESSAGE,
-            });
-            continue;
-          }
+            })),
+          };
+        }
+        for (const source of plan.sources) {
           try {
             if (source.isFolder && repository.removeTree) {
               await repository.removeTree(source.id);

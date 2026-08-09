@@ -279,6 +279,34 @@ describe('createBookmarkOperationService', () => {
     expect(repository.remove).not.toHaveBeenCalledWith('inside');
   });
 
+  it('blocks recursive deletion when the folder subtree changes after confirmation', async () => {
+    const changedTree = tree();
+    changedTree[0]!.children![0]!.children![2]!.children!.push({
+      id: 'added-after-confirmation',
+      parentId: 'folder',
+      index: 1,
+      title: 'Added externally',
+      url: 'https://added.example.test',
+    });
+    const repository = repositoryStub(
+      vi.fn<BookmarkRepository['getTree']>().mockResolvedValue(changedTree),
+    );
+    const service = createBookmarkOperationService({ repository });
+    const plan = service.planDelete(flattenBookmarkTree(tree()), ['folder']);
+
+    await expect(service.execute(plan)).resolves.toEqual({
+      kind: 'delete',
+      results: [
+        {
+          id: 'folder',
+          status: 'conflict',
+          message: '书签已在浏览器中变化，请刷新后重试',
+        },
+      ],
+    });
+    expect(repository.removeTree).not.toHaveBeenCalled();
+  });
+
   it('validates every batch item against one fresh native snapshot', async () => {
     const changedTree = tree();
     changedTree[0]!.children![0]!.children![1]!.title = 'Changed externally';

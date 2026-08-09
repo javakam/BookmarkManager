@@ -13,6 +13,7 @@ import {
   getBookmarkDisplayInfo,
   type BookmarkDisplayInfo,
 } from '../../app/bookmark-view-model';
+import { validateWritableRecord } from '../../domain/bookmark-operations';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import type { MouseEvent } from 'react';
 
@@ -97,7 +98,7 @@ export function BookmarkRow({
 }: BookmarkRowProps) {
   const display = getBookmarkDisplayInfo(record);
   const openLabel = bookmarkOpenLabel(display);
-  const isWritable = !record.isRoot && !record.isUnmodifiable;
+  const isWritable = validateWritableRecord(record).valid;
 
   return (
     <li

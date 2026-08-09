@@ -5,6 +5,7 @@ import {
   getBookmarkDisplayInfo,
 } from '../../app/bookmark-view-model';
 import type { SearchResult } from '../../app/bookmark-index';
+import { validateWritableRecord } from '../../domain/bookmark-operations';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import type { SearchReason } from '../../domain/search';
 import {
@@ -48,12 +49,15 @@ export function SearchResults({
 }: SearchResultsProps) {
   const [contextNode, setContextNode] = useState<BookmarkRecord>();
   const contextDisplay = contextNode ? getBookmarkDisplayInfo(contextNode) : undefined;
+  const contextIsWritable = contextNode
+    ? validateWritableRecord(contextNode).valid
+    : false;
   const context = useItemContextMenu(contextDisplay?.displayTitle ?? '', contextNode ? [
     ...(!contextNode.isFolder ? [{ label: '打开', onSelect: () => onOpen(contextNode) }] : []),
     { label: '定位', onSelect: () => onLocate(contextNode) },
-    ...(onEdit && !contextNode.isUnmodifiable ? [{ label: '编辑', onSelect: () => onEdit(contextNode) }] : []),
-    ...(onMove && !contextNode.isUnmodifiable ? [{ label: '移动', onSelect: () => onMove(contextNode) }] : []),
-    ...(onDelete && !contextNode.isUnmodifiable ? [{ label: '删除', onSelect: () => onDelete(contextNode), danger: true }] : []),
+    ...(onEdit && contextIsWritable ? [{ label: '编辑', onSelect: () => onEdit(contextNode) }] : []),
+    ...(onMove && contextIsWritable ? [{ label: '移动', onSelect: () => onMove(contextNode) }] : []),
+    ...(onDelete && contextIsWritable ? [{ label: '删除', onSelect: () => onDelete(contextNode), danger: true }] : []),
   ] : []);
   return (
     <section aria-labelledby="search-results-heading" className="search-results">
@@ -71,6 +75,7 @@ export function SearchResults({
             const { node } = result;
             const display = getBookmarkDisplayInfo(node);
             const openLabel = bookmarkOpenLabel(display);
+            const isWritable = validateWritableRecord(node).valid;
             const visibleReasons = result.reasons.slice(0, 2);
             const remainingReasonCount = result.reasons.length - visibleReasons.length;
             return (
@@ -142,9 +147,9 @@ export function SearchResults({
                       <LocateFixed aria-hidden="true" size={17} />
                     </button>
                   )}
-                  {!node.isUnmodifiable && onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(node)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
-                  {!node.isUnmodifiable && onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(node)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
-                  {!node.isUnmodifiable && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(node)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
+                  {isWritable && onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(node)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
+                  {isWritable && onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(node)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
+                  {isWritable && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(node)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
                 </span>
               </li>
             );
