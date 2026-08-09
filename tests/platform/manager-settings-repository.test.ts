@@ -58,24 +58,24 @@ describe('createBrowserManagerSettingsRepository', () => {
 
     await expect(
       createBrowserManagerSettingsRepository(emptyStorage).load(),
-    ).resolves.toEqual({ showFolderCounts: true });
+    ).resolves.toEqual({ showFolderCounts: true, theme: 'system' });
     await expect(
       createBrowserManagerSettingsRepository(configuredStorage).load(),
-    ).resolves.toEqual({ showFolderCounts: false });
+    ).resolves.toEqual({ showFolderCounts: false, theme: 'system' });
   });
 
-  it('saves only the folder-count preference under one namespaced key', async () => {
+  it('saves the display preferences under one namespaced key', async () => {
     const storage = new StorageAreaStub();
     const repository = createBrowserManagerSettingsRepository(storage);
 
-    await repository.save({ showFolderCounts: false });
+    await repository.save({ showFolderCounts: false, theme: 'dark' });
 
     expect(storage.writes).toHaveLength(1);
     expect(Object.keys(storage.writes[0] ?? {})).toHaveLength(1);
     const [storageKey] = Object.keys(storage.writes[0] ?? {});
     expect(storageKey).toMatch(/bookmark-manager.+settings/i);
     expect(storage.writes[0]).toEqual({
-      [storageKey]: { showFolderCounts: false },
+      [storageKey]: { showFolderCounts: false, theme: 'dark' },
     });
   });
 
@@ -91,7 +91,7 @@ describe('createBrowserManagerSettingsRepository', () => {
     storage.getError = undefined;
     storage.setError = saveFailure;
     await expect(
-      repository.save({ showFolderCounts: false }),
+      repository.save({ showFolderCounts: false, theme: 'light' }),
     ).rejects.toBe(saveFailure);
   });
 });

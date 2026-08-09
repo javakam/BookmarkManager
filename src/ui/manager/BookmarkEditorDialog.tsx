@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import { trapDialogFocus } from './dialog-focus';
 
 type BookmarkEditorMode = 'create-bookmark' | 'create-folder' | 'edit';
 
@@ -33,7 +34,13 @@ export function BookmarkEditorDialog({
   const needsUrl = mode === 'create-bookmark' || (mode === 'edit' && !record?.isFolder);
 
   return (
-    <div aria-labelledby="bookmark-editor-title" aria-modal="true" className="dialog-backdrop" role="dialog">
+    <div
+      aria-labelledby="bookmark-editor-title"
+      aria-modal="true"
+      className="dialog-backdrop"
+      onKeyDown={trapDialogFocus}
+      role="dialog"
+    >
       <form
         className="operation-dialog"
         onSubmit={(event) => {
@@ -59,10 +66,12 @@ export function BookmarkEditorDialog({
         {needsUrl && (
           <label className="field">
             <span>网址</span>
-            <input
+            <textarea
+              aria-label="网址"
+              className="field__textarea"
+              rows={4}
               onChange={(event) => setUrl(event.target.value)}
               required
-              type="text"
               value={url}
             />
           </label>

@@ -16,6 +16,9 @@ if (!root) {
 
 const repository = createChromeBookmarkRepository();
 const settingsRepository = createBrowserManagerSettingsRepository();
+const manifest = browser.runtime.getManifest();
+
+document.title = `书签工作台 v${manifest.version}`;
 
 createRoot(root).render(
   <StrictMode>
@@ -25,6 +28,7 @@ createRoot(root).render(
       }}
       repository={repository}
       settingsRepository={settingsRepository}
+      version={manifest.version}
     />
   </StrictMode>,
 );

@@ -20,7 +20,7 @@ import type {
 } from '../../domain/similarity-analyzer';
 import { useItemContextMenu } from './useItemContextMenu';
 
-type OrganizeTab = 'duplicates' | 'similar' | 'mirrors';
+export type OrganizeTab = 'duplicates' | 'similar' | 'mirrors';
 type SimilarityGroup = SimilarityPair | TitleConflictGroup;
 
 const PAGE_SIZE = 50;
@@ -73,6 +73,7 @@ const SIMILARITY_REASON_LABELS = {
 
 export interface OrganizeViewProps {
   readonly analysis: OrganizeAnalysis;
+  readonly activeTab?: OrganizeTab;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocateBookmark: (record: BookmarkRecord) => void;
   readonly onLocateFolder: (folder: BookmarkRecord) => void;
@@ -81,6 +82,7 @@ export interface OrganizeViewProps {
   readonly onDelete?: (record: BookmarkRecord) => void;
   readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
   readonly onDeleteSelection?: (records: readonly BookmarkRecord[]) => void;
+  readonly onTabChange?: (tab: OrganizeTab) => void;
 }
 
 function recordPath(record: BookmarkRecord): string {
@@ -157,7 +159,7 @@ function MemberRow({
         </button>
         {canWrite && onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(record)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
         {canWrite && onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(record)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
-        {canWrite && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(record)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
+        {canWrite && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button icon-button--danger" onClick={() => onDelete(record)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
         <button
           aria-label={`定位 ${display.displayTitle}`}
           className="icon-button"
@@ -398,16 +400,20 @@ function LoadMore({ onClick }: { readonly onClick: () => void }) {
 
 export function OrganizeView({
   analysis,
+  activeTab: controlledActiveTab,
   onOpen,
   onLocateBookmark,
   onLocateFolder,
   onMoveSelection,
   onDeleteSelection,
+  onTabChange,
   onEdit,
   onMove,
   onDelete,
 }: OrganizeViewProps) {
-  const [activeTab, setActiveTab] = useState<OrganizeTab>('duplicates');
+  const [internalActiveTab, setInternalActiveTab] =
+    useState<OrganizeTab>('duplicates');
+  const activeTab = controlledActiveTab ?? internalActiveTab;
   const [limits, setLimits] = useState<Record<OrganizeTab, number>>({
     duplicates: PAGE_SIZE,
     similar: PAGE_SIZE,
@@ -441,7 +447,8 @@ export function OrganizeView({
   };
 
   const selectTab = (tab: OrganizeTab) => {
-    setActiveTab(tab);
+    setInternalActiveTab(tab);
+    onTabChange?.(tab);
     setLimits((current) => ({ ...current, [tab]: PAGE_SIZE }));
   };
   const loadMore = (tab: OrganizeTab) => {

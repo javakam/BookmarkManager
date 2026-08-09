@@ -2,7 +2,11 @@ import { browser } from 'wxt/browser';
 
 export interface ManagerSettings {
   readonly showFolderCounts: boolean;
+  /** Optional for compatibility with settings saved by v1.0.3 and test adapters. */
+  readonly theme?: ManagerTheme;
 }
+
+export type ManagerTheme = 'system' | 'light' | 'dark';
 
 export interface ManagerSettingsRepository {
   load(): Promise<ManagerSettings>;
@@ -16,6 +20,7 @@ export interface ManagerSettingsStorageArea {
 
 export const DEFAULT_MANAGER_SETTINGS: ManagerSettings = {
   showFolderCounts: true,
+  theme: 'system',
 };
 
 const MANAGER_SETTINGS_STORAGE_KEY = 'bookmark-manager.manager-settings';
@@ -35,6 +40,10 @@ function parseSettings(value: unknown): ManagerSettings {
       typeof stored.showFolderCounts === 'boolean'
         ? stored.showFolderCounts
         : DEFAULT_MANAGER_SETTINGS.showFolderCounts,
+    theme:
+      stored.theme === 'light' || stored.theme === 'dark' || stored.theme === 'system'
+        ? stored.theme
+        : DEFAULT_MANAGER_SETTINGS.theme,
   };
 }
 
@@ -52,6 +61,7 @@ export function createBrowserManagerSettingsRepository(
       await resolveStorageArea().set({
         [MANAGER_SETTINGS_STORAGE_KEY]: {
           showFolderCounts: settings.showFolderCounts,
+          theme: settings.theme,
         },
       });
     },

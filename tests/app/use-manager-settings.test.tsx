@@ -32,7 +32,7 @@ describe('useManagerSettings', () => {
     const { result } = renderHook(() => useManagerSettings(repository));
 
     expect(result.current.status).toBe('loading');
-    expect(result.current.settings).toEqual({ showFolderCounts: true });
+    expect(result.current.settings).toEqual({ showFolderCounts: true, theme: 'system' });
 
     await act(async () => request.resolve({ showFolderCounts: false }));
     expect(result.current.status).toBe('ready');
@@ -58,13 +58,13 @@ describe('useManagerSettings', () => {
     const { result } = renderHook(() => useManagerSettings(repository));
 
     await waitFor(() => expect(result.current.status).toBe('error'));
-    expect(result.current.settings).toEqual({ showFolderCounts: true });
+    expect(result.current.settings).toEqual({ showFolderCounts: true, theme: 'system' });
     expect(result.current.error).toBe('无法读取设置');
 
     await act(async () => {
       await result.current.update({ showFolderCounts: false });
     });
-    expect(result.current.settings).toEqual({ showFolderCounts: false });
+    expect(result.current.settings).toEqual({ showFolderCounts: false, theme: 'system' });
     expect(result.current.status).toBe('error');
     expect(result.current.error).toBe('无法保存设置');
   });

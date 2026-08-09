@@ -1,20 +1,75 @@
 :root {
-  --color-workspace: #f5f7f8;
+  --color-workspace: #eef3f1;
   --color-surface: #ffffff;
-  --color-surface-secondary: #f0f3f5;
-  --color-text: #20262d;
-  --color-text-secondary: #626d78;
-  --color-text-muted: #7a848f;
-  --color-border: #d2d8de;
-  --color-divider: #e0e4e8;
-  --color-primary: #216b5d;
-  --color-selected: #e7f0ed;
-  --color-warning: #ad6b18;
-  --color-danger: #b24c4c;
-  --color-success: #28745f;
+  --color-surface-secondary: #f4f7f6;
+  --color-text: #1f2b27;
+  --color-text-secondary: #53625d;
+  --color-text-muted: #71807a;
+  --color-border: #cbd7d2;
+  --color-divider: #e1e9e5;
+  --color-primary: #176b57;
+  --color-primary-strong: #0f5645;
+  --color-selected: #e1f0ea;
+  --color-warning: #95621b;
+  --color-danger: #b33f45;
+  --color-danger-strong: #8e2d34;
+  --color-danger-surface: #fff0f0;
+  --color-success: #247257;
+  --color-focus: #2c8b73;
+  --shadow-panel: 0 14px 36px rgb(28 55 46 / 16%);
   --header-height: 60px;
   --sidebar-width: 280px;
   --row-height: 48px;
   --radius-small: 4px;
   --radius-control: 6px;
+}
+
+.manager-app[data-theme='light'] {
+  color-scheme: light;
+}
+
+.manager-app[data-theme='dark'] {
+  --color-workspace: #202825;
+  --color-surface: #29332f;
+  --color-surface-secondary: #242e2a;
+  --color-text: #edf5f1;
+  --color-text-secondary: #c1d0c9;
+  --color-text-muted: #9aaca3;
+  --color-border: #43544d;
+  --color-divider: #384740;
+  --color-primary: #6bc2a4;
+  --color-primary-strong: #8bdbbd;
+  --color-selected: #294d42;
+  --color-warning: #e3b56a;
+  --color-danger: #ff8c91;
+  --color-danger-strong: #d66b72;
+  --color-danger-surface: #4a2c30;
+  --color-success: #80d0ad;
+  --color-focus: #8cdbc0;
+  --shadow-panel: 0 14px 36px rgb(0 0 0 / 36%);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  .manager-app[data-theme='system'] {
+    --color-workspace: #202825;
+    --color-surface: #29332f;
+    --color-surface-secondary: #242e2a;
+    --color-text: #edf5f1;
+    --color-text-secondary: #c1d0c9;
+    --color-text-muted: #9aaca3;
+    --color-border: #43544d;
+    --color-divider: #384740;
+    --color-primary: #6bc2a4;
+    --color-primary-strong: #8bdbbd;
+    --color-selected: #294d42;
+    --color-warning: #e3b56a;
+    --color-danger: #ff8c91;
+    --color-danger-strong: #d66b72;
+    --color-danger-surface: #4a2c30;
+    --color-success: #80d0ad;
+    --color-focus: #8cdbc0;
+    --shadow-panel: 0 14px 36px rgb(0 0 0 / 36%);
+    color-scheme: dark;
+  }
 }

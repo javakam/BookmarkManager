@@ -1,4 +1,5 @@
 import type { BookmarkOperationPlan } from '../../app/bookmark-operation-service';
+import { trapDialogFocus } from './dialog-focus';
 
 interface ConfirmOperationDialogProps {
   readonly plan: BookmarkOperationPlan;
@@ -27,6 +28,26 @@ function operationSummary(plan: BookmarkOperationPlan): string {
   }
 }
 
+function operationCopy(plan: BookmarkOperationPlan): {
+  readonly title: string;
+  readonly confirmLabel: string;
+} {
+  switch (plan.kind) {
+    case 'create-bookmark':
+      return { title: '确认新建书签', confirmLabel: '确认新建' };
+    case 'create-folder':
+      return { title: '确认新建文件夹', confirmLabel: '确认新建' };
+    case 'update':
+      return { title: '确认保存修改', confirmLabel: '确认保存' };
+    case 'move':
+      return { title: '确认移动', confirmLabel: '确认移动' };
+    case 'reorder':
+      return { title: '确认调整顺序', confirmLabel: '确认调整顺序' };
+    case 'delete':
+      return { title: '确认删除', confirmLabel: '确认删除' };
+  }
+}
+
 export function ConfirmOperationDialog({
   plan,
   disabled = false,
@@ -34,12 +55,19 @@ export function ConfirmOperationDialog({
   onConfirm,
 }: ConfirmOperationDialogProps) {
   const isDestructive = plan.kind === 'delete';
+  const copy = operationCopy(plan);
 
   return (
-    <div aria-labelledby="confirm-operation-title" aria-modal="true" className="dialog-backdrop" role="dialog">
+    <div
+      aria-labelledby="confirm-operation-title"
+      aria-modal="true"
+      className="dialog-backdrop"
+      onKeyDown={trapDialogFocus}
+      role="dialog"
+    >
       <section className="operation-dialog">
         <header>
-          <h2 id="confirm-operation-title">确认操作</h2>
+          <h2 id="confirm-operation-title">{copy.title}</h2>
         </header>
         <p className="operation-summary">{operationSummary(plan)}</p>
         {isDestructive && (
@@ -49,8 +77,13 @@ export function ConfirmOperationDialog({
           <button autoFocus className="ghost-button" disabled={disabled} onClick={onCancel} type="button">
             取消
           </button>
-          <button className="command-button" disabled={disabled} onClick={onConfirm} type="button">
-            确认执行
+          <button
+            className={`command-button${isDestructive ? ' command-button--danger' : ''}`}
+            disabled={disabled}
+            onClick={onConfirm}
+            type="button"
+          >
+            {copy.confirmLabel}
           </button>
         </footer>
       </section>

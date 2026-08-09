@@ -23,7 +23,7 @@ describe('SettingsView', () => {
         lastUpdatedAt={lastUpdatedAt}
         onRefresh={onRefresh}
         onShowFolderCountsChange={onShowFolderCountsChange}
-        settings={{ showFolderCounts: true }}
+        settings={{ showFolderCounts: true, theme: 'system' }}
         settingsStatus="ready"
       />,
     );
@@ -40,7 +40,7 @@ describe('SettingsView', () => {
       within(settings).queryByRole('checkbox', { name: '自动更新' }),
     ).toBeNull();
     expect(within(settings).getByText(expectedTime)).toBeTruthy();
-    expect(within(settings).queryByText(/主题|密度|链接检查/)).toBeNull();
+    expect((within(settings).getByRole('combobox', { name: '主题' }) as HTMLSelectElement).value).toBe('system');
 
     fireEvent.click(toggle);
     expect(onShowFolderCountsChange).toHaveBeenCalledWith(false);
@@ -57,7 +57,7 @@ describe('SettingsView', () => {
         isRefreshing
         onRefresh={vi.fn()}
         onShowFolderCountsChange={vi.fn()}
-        settings={{ showFolderCounts: true }}
+        settings={{ showFolderCounts: true, theme: 'system' }}
         settingsError="无法读取设置"
         settingsStatus="error"
       />,

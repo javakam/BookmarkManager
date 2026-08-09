@@ -1,5 +1,5 @@
 import {
-  Bookmark,
+  BookmarkCheck,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -8,6 +8,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -44,7 +45,7 @@ import { BrowseView } from './BrowseView';
 import { ConfirmOperationDialog } from './ConfirmOperationDialog';
 import { FolderTree, type ManagerView } from './FolderTree';
 import { MoveBookmarkDialog } from './MoveBookmarkDialog';
-import { OrganizeView } from './OrganizeView';
+import { OrganizeView, type OrganizeTab } from './OrganizeView';
 import { SearchResults } from './SearchResults';
 import { SettingsView } from './SettingsView';
 
@@ -55,6 +56,7 @@ export interface ManagerAppProps {
   readonly settingsRepository?: ManagerSettingsRepository;
   readonly openUrl: (url: string) => Promise<void>;
   readonly organizeAnalyzers?: OrganizeAnalyzers;
+  readonly version?: string;
 }
 
 type EditorState =
@@ -74,6 +76,20 @@ type EditorState =
       readonly records: readonly BookmarkRecord[];
     };
 
+type LocationReturnState =
+  | {
+      readonly kind: 'search';
+      readonly query: string;
+      readonly scopeMode: SearchScopeMode;
+      readonly folderId?: string;
+      readonly scrollTop: number;
+    }
+  | {
+      readonly kind: 'organize';
+      readonly folderId?: string;
+      readonly scrollTop: number;
+    };
+
 function createDefaultSettingsRepository(): ManagerSettingsRepository {
   let settings = { ...DEFAULT_MANAGER_SETTINGS };
   return {
@@ -81,7 +97,10 @@ function createDefaultSettingsRepository(): ManagerSettingsRepository {
       return settings;
     },
     async save(nextSettings) {
-      settings = { showFolderCounts: nextSettings.showFolderCounts };
+      settings = {
+        showFolderCounts: nextSettings.showFolderCounts,
+        theme: nextSettings.theme,
+      };
     },
   };
 }
@@ -91,6 +110,7 @@ export function ManagerApp({
   settingsRepository,
   openUrl,
   organizeAnalyzers,
+  version,
 }: ManagerAppProps) {
   const data = useBookmarks(repository);
   const [defaultSettingsRepository] = useState(createDefaultSettingsRepository);
@@ -117,8 +137,10 @@ export function ManagerApp({
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const initialExpansionApplied = useRef(false);
   const [query, setQuery] = useState('');
   const [scopeMode, setScopeMode] = useState<SearchScopeMode>('all');
+  const [organizeTab, setOrganizeTab] = useState<OrganizeTab>('duplicates');
   const [highlightedId, setHighlightedId] = useState<string>();
   const [openError, setOpenError] = useState<string>();
   const [operationError, setOperationError] = useState<string>();
@@ -134,13 +156,42 @@ export function ManagerApp({
   const [isExecutingOperation, setIsExecutingOperation] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [locationStatus, setLocationStatus] = useState<string>();
+  const [locationReturn, setLocationReturn] = useState<LocationReturnState>();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const operationFocusOriginRef = useRef<HTMLElement | null>(null);
+  const pendingScrollTop = useRef<number | undefined>(undefined);
   const organizeAnalysis = useOrganizeAnalysis(
     data.records,
     data.revision,
     view === 'organize' && (data.status !== 'loading' || data.records.length > 0),
     organizeAnalyzers,
   );
+
+  const defaultFolderId = model.defaultFolderId;
+
+  useLayoutEffect(() => {
+    if (initialExpansionApplied.current || data.status === 'loading' || !defaultFolderId) {
+      return;
+    }
+    initialExpansionApplied.current = true;
+    setExpandedFolderIds((current) => {
+      if (current.has(defaultFolderId)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(defaultFolderId);
+      return next;
+    });
+  }, [data.status, defaultFolderId]);
+
+  useLayoutEffect(() => {
+    if (pendingScrollTop.current === undefined || !mainRef.current) {
+      return;
+    }
+    mainRef.current.scrollTop = pendingScrollTop.current;
+    pendingScrollTop.current = undefined;
+  }, [organizeTab, query, view]);
 
   const resolvedFolderId = model.resolveFolderId(activeFolderId);
   const normalizedQuery = query.trim();
@@ -199,11 +250,16 @@ export function ManagerApp({
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
+      if (document.querySelector('[aria-modal="true"], [role="menu"]')) {
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         searchInputRef.current?.focus();
       } else if (event.key === 'Escape') {
         setQuery('');
+        setLocationReturn(undefined);
+        setLocationStatus(undefined);
       }
     };
     document.addEventListener('keydown', handleKeyboard);
@@ -233,14 +289,41 @@ export function ManagerApp({
     [model],
   );
 
+  const clearLocationReturn = useCallback(() => {
+    setLocationReturn(undefined);
+    setLocationStatus(undefined);
+  }, []);
+
+  const rememberOperationFocus = useCallback(() => {
+    if (operationFocusOriginRef.current?.isConnected) {
+      return;
+    }
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      operationFocusOriginRef.current = activeElement;
+    }
+  }, []);
+
+  const restoreOperationFocus = useCallback(() => {
+    const origin = operationFocusOriginRef.current;
+    operationFocusOriginRef.current = null;
+    window.setTimeout(() => {
+      if (origin?.isConnected) {
+        origin.focus();
+      } else {
+        mainRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
   const navigate = useCallback(
     (folderId: string) => {
       setActiveFolderId(folderId);
       setHighlightedId(undefined);
-      setLocationStatus(undefined);
+      clearLocationReturn();
       revealFolder(folderId);
     },
-    [revealFolder],
+    [clearLocationReturn, revealFolder],
   );
 
   const enterSearchFolder = useCallback(
@@ -272,6 +355,21 @@ export function ManagerApp({
 
   const locate = useCallback(
     (record: BookmarkRecord) => {
+      const returnState: LocationReturnState | undefined = normalizedQuery
+        ? {
+            kind: 'search',
+            query,
+            scopeMode,
+            folderId: resolvedFolderId,
+            scrollTop: mainRef.current?.scrollTop ?? 0,
+          }
+        : view === 'organize'
+          ? {
+              kind: 'organize',
+              folderId: resolvedFolderId,
+              scrollTop: mainRef.current?.scrollTop ?? 0,
+            }
+          : undefined;
       const parentFolderId = model.resolveFolderId(record.parentId);
       if (parentFolderId) {
         setActiveFolderId(parentFolderId);
@@ -280,22 +378,73 @@ export function ManagerApp({
       const display = getBookmarkDisplayInfo(record);
       setHighlightedId(record.id);
       setLocationStatus(`已定位 ${display.displayTitle}`);
+      setLocationReturn(returnState);
       setQuery('');
       setView('browse');
     },
-    [model, revealFolder],
+    [model, normalizedQuery, query, resolvedFolderId, scopeMode, view, revealFolder],
   );
 
   const locateFolder = useCallback(
     (folder: BookmarkRecord) => {
+      const returnState: LocationReturnState | undefined = normalizedQuery
+        ? {
+            kind: 'search',
+            query,
+            scopeMode,
+            folderId: resolvedFolderId,
+            scrollTop: mainRef.current?.scrollTop ?? 0,
+          }
+        : view === 'organize'
+          ? {
+              kind: 'organize',
+              folderId: resolvedFolderId,
+              scrollTop: mainRef.current?.scrollTop ?? 0,
+            }
+          : undefined;
       setActiveFolderId(folder.id);
       revealFolder(folder.id);
       setHighlightedId(undefined);
       setLocationStatus(`已定位 ${getBookmarkDisplayInfo(folder).displayTitle}`);
+      setLocationReturn(returnState);
       setQuery('');
       setView('browse');
     },
-    [revealFolder],
+    [normalizedQuery, query, resolvedFolderId, scopeMode, view, revealFolder],
+  );
+
+  const returnFromLocation = useCallback(() => {
+    if (!locationReturn) {
+      return;
+    }
+    const source = locationReturn;
+    setLocationReturn(undefined);
+    setLocationStatus(undefined);
+    setHighlightedId(undefined);
+    setActiveFolderId(source.folderId);
+    pendingScrollTop.current = source.scrollTop;
+    if (source.folderId) {
+      revealFolder(source.folderId);
+    }
+    if (source.kind === 'search') {
+      setScopeMode(source.scopeMode);
+      setQuery(source.query);
+      setView('browse');
+    } else {
+      setQuery('');
+      setView('organize');
+    }
+  }, [locationReturn, revealFolder]);
+
+  const changeView = useCallback(
+    (nextView: ManagerView) => {
+      clearLocationReturn();
+      if (nextView === 'organize') {
+        setOrganizeTab('duplicates');
+      }
+      setView(nextView);
+    },
+    [clearLocationReturn],
   );
 
   const clearOperationUi = useCallback(() => {
@@ -305,7 +454,8 @@ export function ManagerApp({
     setMoveRecordsSnapshot(undefined);
     setConfirmPlan(undefined);
     setOperationError(undefined);
-  }, []);
+    restoreOperationFocus();
+  }, [restoreOperationFocus]);
 
   useEffect(() => {
     if (
@@ -334,6 +484,7 @@ export function ManagerApp({
 
   const openEditor = useCallback(
     (next: EditorState['mode'], value: string | BookmarkRecord) => {
+      rememberOperationFocus();
       if (next === 'edit') {
         setEditorState({
           mode: 'edit',
@@ -348,25 +499,27 @@ export function ManagerApp({
         records: data.records,
       });
     },
-    [data.records],
+    [data.records, rememberOperationFocus],
   );
 
   const startMove = useCallback(
     (record: BookmarkRecord) => {
+      rememberOperationFocus();
       setMoveRecord(record);
       setMoveSourceIds(undefined);
       setMoveRecordsSnapshot(data.records);
     },
-    [data.records],
+    [data.records, rememberOperationFocus],
   );
 
   const startMoveSelection = useCallback(
     (ids: readonly string[]) => {
+      rememberOperationFocus();
       setMoveRecord(undefined);
       setMoveSourceIds([...ids]);
       setMoveRecordsSnapshot(data.records);
     },
-    [data.records],
+    [data.records, rememberOperationFocus],
   );
 
   const previewCreateOrEdit = useCallback(
@@ -450,13 +603,14 @@ export function ManagerApp({
         return;
       }
       try {
+        rememberOperationFocus();
         setConfirmPlan(operationService.planDelete(data.records, [record.id]));
         setOperationError(undefined);
       } catch (error) {
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.records, operationService],
+    [data.records, operationService, rememberOperationFocus],
   );
 
   const previewFolderReorder = useCallback(
@@ -480,6 +634,7 @@ export function ManagerApp({
         return;
       }
       try {
+        rememberOperationFocus();
         setConfirmPlan(
           operationService.planReorder(data.records, sourceId, destination),
         );
@@ -488,7 +643,13 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.isImporting, data.records, model, operationService],
+    [
+      data.isImporting,
+      data.records,
+      model,
+      operationService,
+      rememberOperationFocus,
+    ],
   );
 
   const executeConfirmedPlan = useCallback(async () => {
@@ -517,12 +678,13 @@ export function ManagerApp({
         return next;
       });
       await data.refresh();
+      restoreOperationFocus();
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsExecutingOperation(false);
     }
-  }, [confirmPlan, data, operationService]);
+  }, [confirmPlan, data, operationService, restoreOperationFocus]);
 
   const writableMoveTargets = useMemo(() => {
     const operationModel = moveModel;
@@ -586,6 +748,7 @@ export function ManagerApp({
       return;
     }
     try {
+      rememberOperationFocus();
       setConfirmPlan(
         operationService.planDelete(data.records, [...selectedIds]),
       );
@@ -593,7 +756,13 @@ export function ManagerApp({
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     }
-  }, [data.isImporting, data.records, operationService, selectedIds]);
+  }, [
+    data.isImporting,
+    data.records,
+    operationService,
+    rememberOperationFocus,
+    selectedIds,
+  ]);
 
   const previewOrganizeDelete = useCallback(
     (records: readonly BookmarkRecord[]) => {
@@ -602,6 +771,7 @@ export function ManagerApp({
         return;
       }
       try {
+        rememberOperationFocus();
         setConfirmPlan(
           operationService.planDelete(
             data.records,
@@ -613,13 +783,16 @@ export function ManagerApp({
         setOperationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [data.isImporting, data.records, operationService],
+    [data.isImporting, data.records, operationService, rememberOperationFocus],
   );
 
   const bookmarkCount = model.searchableRecords.filter(
     (record) => !record.isFolder,
   ).length;
   const folderCount = model.searchableRecords.length - bookmarkCount;
+  const hasOperationDialog = Boolean(
+    editorState || moveRecord || moveSourceIds || confirmPlan,
+  );
 
   let content: React.ReactNode;
   if (data.status === 'loading' && data.records.length === 0) {
@@ -648,6 +821,7 @@ export function ManagerApp({
         onShowFolderCountsChange={(showFolderCounts) =>
           void managerSettings.update({ showFolderCounts })
         }
+        onThemeChange={(theme) => void managerSettings.update({ theme })}
         settings={managerSettings.settings}
         settingsError={managerSettings.error}
         settingsStatus={managerSettings.status}
@@ -657,6 +831,7 @@ export function ManagerApp({
     if (organizeAnalysis.status === 'ready') {
       content = (
         <OrganizeView
+          activeTab={organizeTab}
           analysis={organizeAnalysis.analysis}
           onDelete={previewDelete}
           onDeleteSelection={previewOrganizeDelete}
@@ -668,6 +843,7 @@ export function ManagerApp({
           }
           onMove={startMove}
           onOpen={(record) => void handleOpen(record)}
+          onTabChange={setOrganizeTab}
         />
       );
     } else if (organizeAnalysis.status === 'error') {
@@ -727,11 +903,20 @@ export function ManagerApp({
   }
 
   return (
-    <div className="manager-app">
-      <header className="app-header">
+    <div className="manager-app" data-theme={managerSettings.settings.theme ?? 'system'}>
+      <header
+        aria-hidden={hasOperationDialog ? true : undefined}
+        className="app-header"
+        inert={hasOperationDialog ? true : undefined}
+      >
         <div className="app-brand">
-          <Bookmark aria-hidden="true" size={20} />
-          <span>书签工作台</span>
+          <span aria-hidden="true" className="app-brand__mark">
+            <BookmarkCheck size={20} strokeWidth={2.2} />
+          </span>
+          <span className="app-brand__text">
+            <span>书签工作台</span>
+            {version && <small>v{version}</small>}
+          </span>
         </div>
         <div className="header-center">
           <label className="global-search">
@@ -744,7 +929,7 @@ export function ManagerApp({
                 if (nextQuery.trim()) {
                   setView('browse');
                 }
-                setLocationStatus(undefined);
+                clearLocationReturn();
               }}
               placeholder="搜索书签、网址、域名或文件夹"
               ref={searchInputRef}
@@ -766,7 +951,10 @@ export function ManagerApp({
           <div aria-label="搜索范围" className="scope-control" role="group">
             <button
               aria-pressed={scopeMode === 'all'}
-              onClick={() => setScopeMode('all')}
+              onClick={() => {
+                clearLocationReturn();
+                setScopeMode('all');
+              }}
               type="button"
             >
               全部书签
@@ -774,7 +962,10 @@ export function ManagerApp({
             <button
               aria-pressed={scopeMode === 'folder'}
               disabled={!resolvedFolderId}
-              onClick={() => setScopeMode('folder')}
+              onClick={() => {
+                clearLocationReturn();
+                setScopeMode('folder');
+              }}
               type="button"
             >
               当前文件夹
@@ -800,7 +991,11 @@ export function ManagerApp({
           </button>
         </div>
       </header>
-      <div className="app-body">
+      <div
+        aria-hidden={hasOperationDialog ? true : undefined}
+        className="app-body"
+        inert={hasOperationDialog ? true : undefined}
+      >
         <FolderTree
           activeFolderId={resolvedFolderId}
           expandedFolderIds={expandedFolderIds}
@@ -825,11 +1020,11 @@ export function ManagerApp({
               return next;
             });
           }}
-          onViewChange={setView}
+          onViewChange={changeView}
           showFolderCounts={managerSettings.settings.showFolderCounts}
           view={view}
         />
-        <main className="app-main">
+        <main className="app-main" ref={mainRef} tabIndex={-1}>
           {data.isImporting && (
             <div className="inline-warning" role="status">
               浏览器正在导入书签，写操作已暂停；导入完成后会自动刷新。
@@ -843,7 +1038,20 @@ export function ManagerApp({
           )}
           {openError && <div className="inline-error" role="alert">{openError}</div>}
           {operationError && <div className="inline-error" role="alert">{operationError}</div>}
-          {locationStatus && <div className="location-status" role="status">{locationStatus}</div>}
+          {locationStatus && (
+            <div className="location-status" role="status">
+              <span>{locationStatus}</span>
+              {locationReturn && (
+                <button
+                  className="location-status__return"
+                  onClick={returnFromLocation}
+                  type="button"
+                >
+                  {locationReturn.kind === 'search' ? '返回搜索结果' : '返回整理结果'}
+                </button>
+              )}
+            </div>
+          )}
           {content}
         </main>
       </div>

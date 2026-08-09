@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title>书签工作台</title>
+  <rect width="128" height="128" rx="28" fill="#176b57"/>
+  <path d="M38 24h52v79l-26-17-26 17V24Z" fill="#f7fbf9"/>
+  <path d="m51 61 10 10 18-21" fill="none" stroke="#176b57" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
+</svg>

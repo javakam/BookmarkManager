@@ -170,6 +170,20 @@ function requireCurrentFingerprint(
   return current;
 }
 
+function compareStableBookmarkFingerprint(
+  expected: BookmarkFingerprint,
+  actual: BookmarkFingerprint,
+): boolean {
+  return (
+    expected.id === actual.id &&
+    expected.parentId === actual.parentId &&
+    expected.title === actual.title &&
+    expected.url === actual.url &&
+    expected.isFolder === actual.isFolder &&
+    expected.isUnmodifiable === actual.isUnmodifiable
+  );
+}
+
 function collectSources(
   records: readonly BookmarkRecord[],
   ids: readonly string[],
@@ -259,6 +273,45 @@ function matchesDeleteSnapshot(
     return Boolean(
       current &&
         compareBookmarkFingerprint(expected, createBookmarkFingerprint(current)),
+    );
+  });
+}
+
+function matchesDeleteSourceSnapshot(
+  records: readonly BookmarkRecord[],
+  plan: DeletePlan,
+  source: BookmarkFingerprint,
+): boolean {
+  const expectedById = new Map(
+    plan.affected.map((fingerprint) => [fingerprint.id, fingerprint]),
+  );
+  const expectedAffected = plan.affected.filter((fingerprint) => {
+    let current: BookmarkFingerprint | undefined = fingerprint;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (current.id === source.id) {
+        return true;
+      }
+      visited.add(current.id);
+      current = current.parentId
+        ? expectedById.get(current.parentId)
+        : undefined;
+    }
+    return false;
+  });
+  const currentAffected = collectCurrentDeleteRecords(records, [source]);
+  if (currentAffected.length !== expectedAffected.length) {
+    return false;
+  }
+  const currentById = recordsById(currentAffected);
+  return expectedAffected.every((expected) => {
+    const current = currentById.get(expected.id);
+    return Boolean(
+      current &&
+        compareStableBookmarkFingerprint(
+          expected,
+          createBookmarkFingerprint(current),
+        ),
     );
   });
 }
@@ -516,26 +569,38 @@ export function createBookmarkOperationService({
         // a full fingerprint check after every item would therefore report
         // false conflicts for the remaining items in the same folder.
         const records = await readFreshRecords();
-        const byId = recordsById(records);
-        const targetIsCurrent = Boolean(
-          requireCurrentFingerprint(byId, plan.target),
-        );
-        const sourceIsCurrent = new Map(
-          plan.sources.map((source) => [
-            source.id,
-            Boolean(requireCurrentFingerprint(byId, source)),
-          ]),
-        );
-        const siblingsAreCurrent =
-          plan.kind !== 'reorder' ||
-          !plan.siblings ||
-          compareSiblingSnapshots(records, plan.target.id, plan.siblings);
-
-        for (const source of plan.sources) {
+        for (const [sourceIndex, source] of plan.sources.entries()) {
+          // Re-read before every item after the first. Native moves can change
+          // sibling indexes, so only stable identity fields are compared here;
+          // this still catches an external edit, deletion, or parent move that
+          // happened while the batch was executing.
+          const currentRecords =
+            sourceIndex === 0 ? records : await readFreshRecords();
+          const byId = recordsById(currentRecords);
+          const currentTarget = byId.get(plan.target.id);
+          const currentSource = byId.get(source.id);
+          const targetIsCurrent = Boolean(
+            currentTarget &&
+              compareStableBookmarkFingerprint(
+                plan.target,
+                createBookmarkFingerprint(currentTarget),
+              ),
+          );
+          const sourceIsCurrent = Boolean(
+            currentSource &&
+              compareStableBookmarkFingerprint(
+                source,
+                createBookmarkFingerprint(currentSource),
+              ),
+          );
+          const siblingsAreCurrent =
+            plan.kind !== 'reorder' ||
+            !plan.siblings ||
+            compareSiblingSnapshots(currentRecords, plan.target.id, plan.siblings);
           if (
             !targetIsCurrent ||
             !siblingsAreCurrent ||
-            !sourceIsCurrent.get(source.id)
+            !sourceIsCurrent
           ) {
             results.push({
               id: source.id,
@@ -577,7 +642,25 @@ export function createBookmarkOperationService({
             })),
           };
         }
-        for (const source of plan.sources) {
+        for (const [sourceIndex, source] of plan.sources.entries()) {
+          // A previous deletion can shift sibling indexes. Re-read before each
+          // later source and compare stable fields plus its complete subtree so
+          // external additions or edits are never swept into removeTree.
+          if (
+            sourceIndex > 0 &&
+            !matchesDeleteSourceSnapshot(
+              await readFreshRecords(),
+              plan,
+              source,
+            )
+          ) {
+            results.push({
+              id: source.id,
+              status: 'conflict',
+              message: CONFLICT_MESSAGE,
+            });
+            continue;
+          }
           try {
             if (source.isFolder && repository.removeTree) {
               await repository.removeTree(source.id);

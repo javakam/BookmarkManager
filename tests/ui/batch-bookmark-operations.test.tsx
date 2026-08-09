@@ -116,8 +116,8 @@ async function renderReady() {
   return { repository };
 }
 
-async function confirm() {
-  fireEvent.click(await screen.findByRole('button', { name: '确认执行' }));
+async function confirm(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name }));
   await screen.findByRole('status', { name: '操作提示' });
 }
 
@@ -130,22 +130,22 @@ describe('batch bookmark operations', () => {
     expect(screen.getByText('批量操作')).toBeTruthy();
     expect(within(toolbar).queryByRole('button', { name: '全选' })).toBeNull();
     expect(within(toolbar).queryByRole('button', { name: '反选' })).toBeNull();
-    expect(within(toolbar).getByRole('button', { name: '删除' })).toBeTruthy();
-    expect(within(toolbar).getByRole('button', { name: '移动' })).toBeTruthy();
+    expect(within(toolbar).getByRole('button', { name: '删除所选' })).toBeTruthy();
+    expect(within(toolbar).getByRole('button', { name: '移动所选' })).toBeTruthy();
     expect(screen.queryByRole('toolbar', { name: '批量操作' })).toBeNull();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
-    fireEvent.click(within(toolbar).getByRole('button', { name: '移动' }));
+    fireEvent.click(within(toolbar).getByRole('button', { name: '移动所选' }));
     const dialog = await screen.findByRole('dialog', { name: '移动到' });
     fireEvent.change(within(dialog).getByLabelText('目标文件夹'), {
       target: { value: 'other' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
-    await confirm();
+    await confirm('确认移动');
 
     expect(repository.move).toHaveBeenCalledWith('a', { parentId: 'other' });
     expect(
-      (within(toolbar).getByRole('button', { name: '移动' }) as HTMLButtonElement)
+      (within(toolbar).getByRole('button', { name: '移动所选' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
 
@@ -159,11 +159,11 @@ describe('batch bookmark operations', () => {
     const { repository } = await renderReady();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 A' }));
-    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除所选' }));
 
     expect(await screen.findByText('将永久删除 1 项')).toBeTruthy();
     expect(screen.getByText('删除后无法恢复')).toBeTruthy();
-    await confirm();
+    await confirm('确认删除');
 
     expect(repository.remove).toHaveBeenCalledWith('a');
     expect(repository.createFolder).not.toHaveBeenCalled();
@@ -178,7 +178,7 @@ describe('batch bookmark operations', () => {
       await screen.findByText('将永久删除 2 项（含 1 个文件夹及其内容）'),
     ).toBeTruthy();
     expect(screen.getByText('删除后无法恢复')).toBeTruthy();
-    await confirm();
+    await confirm('确认删除');
 
     expect(repository.removeTree).toHaveBeenCalledWith('folder-a');
   });

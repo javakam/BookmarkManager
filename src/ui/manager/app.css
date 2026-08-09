@@ -21,14 +21,18 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   color: inherit;
   font: inherit;
 }
 
 button:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--color-primary);
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-focus);
   outline-offset: 1px;
 }
 
@@ -38,6 +42,8 @@ button:disabled {
 }
 
 .manager-app {
+  background: var(--color-workspace);
+  color: var(--color-text);
   display: grid;
   grid-template-rows: var(--header-height) minmax(0, 1fr);
   height: 100vh;
@@ -61,12 +67,38 @@ button:disabled {
   border-right: 1px solid var(--color-border);
   color: var(--color-primary);
   display: flex;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 650;
   gap: 10px;
   min-width: 0;
   padding: 0 20px;
   white-space: nowrap;
+}
+
+.app-brand__mark {
+  align-items: center;
+  background: var(--color-primary);
+  border-radius: 7px;
+  color: var(--color-surface);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.app-brand__text {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 7px;
+  min-width: 0;
+}
+
+.app-brand__text small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .header-center {
@@ -134,6 +166,15 @@ button:disabled {
 .icon-button:hover:not(:disabled) {
   background: var(--color-surface-secondary);
   color: var(--color-primary);
+}
+
+.icon-button--danger {
+  color: var(--color-danger);
+}
+
+.icon-button--danger:hover:not(:disabled) {
+  background: var(--color-danger-surface);
+  color: var(--color-danger-strong);
 }
 
 .scope-control {
@@ -364,6 +405,22 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 .settings-preference {
   align-items: center;
   display: flex;
+}
+
+.settings-preference--select {
+  align-items: stretch;
+  padding: 14px 0;
+}
+
+.settings-theme-field {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 220px);
+  width: 100%;
+}
+
+.settings-theme-field select {
+  min-height: 36px;
 }
 
 .settings-toggle {
@@ -659,14 +716,14 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   color: var(--color-text-secondary);
   font-size: 12px;
   min-width: 0;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   padding-right: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .bookmark-row__url {
   color: var(--color-text-muted);
+  overflow: visible;
 }
 
 .bookmark-row__actions {
@@ -736,6 +793,7 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 }
 
 .field input,
+.field textarea,
 .field select {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -747,16 +805,25 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   width: 100%;
 }
 
+.field textarea {
+  line-height: 1.45;
+  min-height: 92px;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
 .operation-summary {
   font-weight: 650;
   margin: 0;
 }
 
 .operation-note {
-  background: var(--color-selected);
-  border: 1px solid var(--color-border);
+  background: var(--color-danger-surface);
+  border: 1px solid var(--color-danger);
   border-radius: var(--radius-small);
-  color: var(--color-primary);
+  color: var(--color-danger);
   font-size: 13px;
   margin: 0;
   padding: 8px 10px;
@@ -801,13 +868,16 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 .search-result-row__url span {
   color: var(--color-text-muted);
   font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .search-result-row__url span:first-child {
   color: var(--color-text-secondary);
+}
+
+.search-result-row__url {
+  overflow: visible;
 }
 
 .search-result-row__match {
@@ -873,6 +943,15 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   padding: 0 14px;
 }
 
+.command-button--danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.command-button--danger:hover:not(:disabled) {
+  background: var(--color-danger-strong);
+}
+
 .inline-error,
 .location-status {
   align-items: center;
@@ -910,6 +989,22 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 .location-status {
   background: var(--color-selected);
   color: var(--color-success);
+}
+
+.location-status__return {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-small);
+  color: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 12px;
+  min-height: 26px;
+  padding: 2px 9px;
+}
+
+.location-status__return:hover {
+  background: var(--color-surface);
 }
 
 .organize-view {
@@ -1016,6 +1111,15 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 .folder-batch-tools button:hover:not(:disabled) {
   background: var(--color-surface-secondary);
   color: var(--color-primary);
+}
+
+.folder-batch-tools .folder-batch-tools__danger {
+  color: var(--color-danger);
+}
+
+.folder-batch-tools .folder-batch-tools__danger:hover:not(:disabled) {
+  background: var(--color-danger-surface);
+  color: var(--color-danger-strong);
 }
 
 .folder-batch-tools button:disabled {
@@ -1184,10 +1288,9 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   color: var(--color-text-muted);
   font-size: 13px;
   min-width: 0;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   padding-right: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .organize-member-actions,
@@ -1233,17 +1336,65 @@ button.sidebar-primary:not([aria-current="page"]):hover {
 }
 
 @media (max-width: 1100px) {
+  :root {
+    --sidebar-width: 240px;
+  }
+
+  .app-brand {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
   .bookmark-row {
-    grid-template-columns: 28px 28px minmax(180px, 1fr) minmax(120px, 200px) 148px;
+    align-items: start;
+    column-gap: 4px;
+    grid-template-areas:
+      "select icon title actions"
+      ". . url url";
+    grid-template-columns: 28px 28px minmax(0, 1fr) 148px;
+    min-height: 72px;
+    padding-bottom: 8px;
+    padding-top: 8px;
+    row-gap: 4px;
   }
 
   .search-result-row {
-    grid-template-columns: 28px minmax(220px, 1fr) minmax(150px, 220px) 180px;
+    align-items: start;
+    column-gap: 4px;
+    grid-template-areas:
+      "icon identity actions"
+      ". url url";
+    grid-template-columns: 28px minmax(0, 1fr) 168px;
+    min-height: 78px;
+    padding-bottom: 8px;
+    padding-top: 8px;
+    row-gap: 4px;
   }
 
-  .bookmark-row__url,
-  .search-result-row__url {
+  .bookmark-row__kind,
+  .search-result-row__match {
     display: none;
+  }
+
+  .bookmark-row__select { grid-area: select; }
+  .bookmark-row__icon { grid-area: icon; }
+  .bookmark-row__title { grid-area: title; }
+  .bookmark-row__actions { grid-area: actions; }
+  .bookmark-row__url { grid-area: url; padding-left: 0; padding-right: 0; }
+  .search-result-row__identity { grid-area: identity; }
+  .search-result-row__url { grid-area: url; padding-left: 0; padding-right: 0; }
+
+  .content-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    height: auto;
+    min-height: 58px;
+    padding-bottom: 10px;
+    padding-top: 10px;
+  }
+
+  .content-heading__actions {
+    flex-wrap: wrap;
   }
 
   .folder-tree__count-direct,
@@ -1252,11 +1403,11 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   }
 
   .organize-member-row {
-    grid-template-columns: 28px minmax(100px, 0.8fr) minmax(120px, 1fr) 168px;
+    grid-template-columns: 28px minmax(120px, 0.9fr) minmax(0, 1fr) 168px;
   }
 
   .organize-member-row--selectable {
-    grid-template-columns: 20px 28px minmax(100px, 0.8fr) minmax(120px, 1fr) 168px;
+    grid-template-columns: 20px 28px minmax(120px, 0.9fr) minmax(0, 1fr) 168px;
   }
 
   .organize-member-path {
@@ -1274,7 +1425,7 @@ button.sidebar-primary:not([aria-current="page"]):hover {
     padding: 0;
   }
 
-  .app-brand span {
+  .app-brand__text {
     display: none;
   }
 
@@ -1329,12 +1480,12 @@ button.sidebar-primary:not([aria-current="page"]):hover {
   }
 
   .organize-member-row {
-    grid-template-columns: 24px minmax(120px, 1fr) minmax(150px, 1fr) 180px;
+    grid-template-columns: 24px minmax(100px, 1fr) minmax(0, 1fr) 148px;
     padding-left: 12px;
   }
 
   .organize-member-row--selectable {
-    grid-template-columns: 20px 24px minmax(120px, 1fr) minmax(150px, 1fr) 180px;
+    grid-template-columns: 20px 24px minmax(100px, 1fr) minmax(0, 1fr) 148px;
   }
 
   .organize-group-toolbar {
@@ -1377,31 +1528,6 @@ button.sidebar-primary:not([aria-current="page"]):hover {
     padding-left: 12px;
   }
 
-  .bookmark-row {
-    grid-template-columns: 28px 28px minmax(120px, 1fr) 148px;
-  }
-
-  .search-result-row {
-    grid-template-columns: 28px minmax(150px, 1fr) 180px;
-  }
-
-  .bookmark-row__kind,
-  .search-result-row__match {
-    display: none;
-  }
-
-  .content-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    height: auto;
-    min-height: 58px;
-    padding-bottom: 10px;
-    padding-top: 10px;
-  }
-
-  .content-heading__actions {
-    flex-wrap: wrap;
-  }
 }
 
 @media (max-width: 480px) {

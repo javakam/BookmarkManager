@@ -1,7 +1,10 @@
 import { CheckCircle2, RefreshCw } from 'lucide-react';
 
 import type { ManagerSettingsState } from '../../app/use-manager-settings';
-import type { ManagerSettings } from '../../platform/manager-settings-repository';
+import type {
+  ManagerSettings,
+  ManagerTheme,
+} from '../../platform/manager-settings-repository';
 
 interface SettingsViewProps {
   readonly settings: ManagerSettings;
@@ -10,6 +13,7 @@ interface SettingsViewProps {
   readonly lastUpdatedAt?: number;
   readonly isRefreshing: boolean;
   readonly onShowFolderCountsChange: (showFolderCounts: boolean) => void;
+  readonly onThemeChange?: (theme: ManagerTheme) => void;
   readonly onRefresh: () => void;
 }
 
@@ -25,6 +29,7 @@ export function SettingsView({
   lastUpdatedAt,
   isRefreshing,
   onShowFolderCountsChange,
+  onThemeChange,
   onRefresh,
 }: SettingsViewProps) {
   return (
@@ -57,6 +62,22 @@ export function SettingsView({
           <span aria-hidden="true" className="settings-toggle__track">
             <span className="settings-toggle__thumb" />
           </span>
+        </label>
+      </div>
+
+      <div className="settings-preference settings-preference--select">
+        <label className="field settings-theme-field">
+          <span>主题</span>
+          <select
+            aria-label="主题"
+            disabled={settingsStatus === 'loading' || !onThemeChange}
+            onChange={(event) => onThemeChange?.(event.currentTarget.value as ManagerTheme)}
+            value={settings.theme ?? 'system'}
+          >
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
         </label>
       </div>
 

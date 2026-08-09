@@ -48,18 +48,36 @@ export function BrowseView({
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [contextRecord, setContextRecord] = useState<BookmarkRecord>();
 
+  const activeFolder = model.recordById.get(activeFolderId);
+  const children = activeFolder
+    ? (model.childrenByParentId.get(activeFolderId) ?? [])
+    : [];
+
   useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
   }, [activeFolderId]);
 
-  const activeFolder = model.recordById.get(activeFolderId);
+  useEffect(() => {
+    if (!highlightedId) {
+      return;
+    }
+    const highlightedIndex = children.findIndex(
+      (record) => record.id === highlightedId,
+    );
+    if (highlightedIndex < 0) {
+      return;
+    }
+    const requiredLimit =
+      Math.ceil((highlightedIndex + 1) / PAGE_SIZE) * PAGE_SIZE;
+    setVisibleLimit((current) => Math.max(current, requiredLimit));
+  }, [children, highlightedId]);
+
   if (!activeFolder) {
     return <div className="content-state">没有可浏览的书签目录</div>;
   }
 
   const folderName = getBookmarkDisplayInfo(activeFolder).displayTitle;
   const breadcrumbs = model.getBreadcrumbs(activeFolderId);
-  const children = model.childrenByParentId.get(activeFolderId) ?? [];
   const visibleChildren = children.slice(0, visibleLimit);
   const selectableChildren = children.filter(
     (record) => validateWritableRecord(record).valid,
@@ -123,8 +141,8 @@ export function BrowseView({
             <div className="folder-batch-group">
               <span>批量操作</span>
               <div aria-label="文件夹批量操作" className="folder-batch-tools" role="toolbar">
-                <button disabled={selectedCount === 0} onClick={onDeleteSelection} type="button">删除</button>
-                <button disabled={selectedCount === 0} onClick={onMoveSelection} type="button">移动</button>
+                <button className="folder-batch-tools__danger" disabled={selectedCount === 0} onClick={onDeleteSelection} type="button">删除所选</button>
+                <button disabled={selectedCount === 0} onClick={onMoveSelection} type="button">移动所选</button>
               </div>
             </div>
             <div className="content-create-tools">

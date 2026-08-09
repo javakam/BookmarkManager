@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ExternalLink,
   Folder,
@@ -99,12 +99,21 @@ export function BookmarkRow({
   const display = getBookmarkDisplayInfo(record);
   const openLabel = bookmarkOpenLabel(display);
   const isWritable = validateWritableRecord(record).valid;
+  const rowRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    if (highlighted) {
+      rowRef.current?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+    }
+  }, [highlighted]);
 
   return (
     <li
       className={`bookmark-row${highlighted ? ' bookmark-row--highlighted' : ''}`}
+      data-bookmark-id={record.id}
       data-highlighted={highlighted ? 'true' : undefined}
       onContextMenu={(event) => onContextMenu?.(event, record)}
+      ref={rowRef}
     >
       <span className="bookmark-row__select">
         {selectable && (
@@ -195,7 +204,7 @@ export function BookmarkRow({
         {isWritable && onDelete && (
           <button
             aria-label={`删除 ${display.displayTitle}`}
-            className="icon-button"
+            className="icon-button icon-button--danger"
             onClick={() => onDelete(record)}
             title={`删除 ${display.displayTitle}`}
             type="button"

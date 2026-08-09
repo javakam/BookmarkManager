@@ -234,7 +234,7 @@ describe('createBookmarkOperationService', () => {
     expect(repository.removeTree).toHaveBeenCalledWith('folder');
   });
 
-  it('does not turn sibling index shifts from its own batch deletes into conflicts', async () => {
+  it('rechecks later deletes without treating its own sibling index shifts as conflicts', async () => {
     const nativeTree = tree();
     const getTree = vi.fn<BookmarkRepository['getTree']>(async () => nativeTree);
     const repository = repositoryStub(getTree);
@@ -261,7 +261,7 @@ describe('createBookmarkOperationService', () => {
       { id: 'b', status: 'success', message: '已删除' },
     ]);
     expect(repository.remove).toHaveBeenCalledTimes(2);
-    expect(getTree).toHaveBeenCalledTimes(1);
+    expect(getTree).toHaveBeenCalledTimes(2);
   });
 
   it('deletes a selected folder once when one of its descendants is also selected', async () => {
@@ -307,7 +307,61 @@ describe('createBookmarkOperationService', () => {
     expect(repository.removeTree).not.toHaveBeenCalled();
   });
 
-  it('validates every batch item against one fresh native snapshot', async () => {
+  it('blocks a later recursive delete when its subtree changes during the batch', async () => {
+    const firstTree = tree();
+    const secondFolder: BrowserBookmarkNode = {
+      id: 'folder-two',
+      parentId: 'bar',
+      index: 3,
+      title: 'Folder Two',
+      children: [
+        {
+          id: 'inside-two',
+          parentId: 'folder-two',
+          index: 0,
+          title: 'Inside Two',
+          url: 'https://inside-two.example.test',
+        },
+      ],
+    };
+    firstTree[0]!.children![0]!.children!.push(secondFolder);
+
+    const changedTree = structuredClone(firstTree);
+    changedTree[0]!.children![0]!.children![3]!.children!.push({
+      id: 'added-during-delete',
+      parentId: 'folder-two',
+      index: 1,
+      title: 'Added during delete',
+      url: 'https://added-during-delete.example.test',
+    });
+    const getTree = vi
+      .fn<BookmarkRepository['getTree']>()
+      .mockResolvedValueOnce(firstTree)
+      .mockResolvedValue(changedTree);
+    const repository = repositoryStub(getTree);
+    const service = createBookmarkOperationService({ repository });
+    const plan = service.planDelete(flattenBookmarkTree(firstTree), [
+      'folder',
+      'folder-two',
+    ]);
+
+    await expect(service.execute(plan)).resolves.toEqual({
+      kind: 'delete',
+      results: [
+        { id: 'folder', status: 'success', message: '已删除' },
+        {
+          id: 'folder-two',
+          status: 'conflict',
+          message: '书签已在浏览器中变化，请刷新后重试',
+        },
+      ],
+    });
+    expect(repository.removeTree).toHaveBeenCalledTimes(1);
+    expect(repository.removeTree).toHaveBeenCalledWith('folder');
+    expect(getTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('rechecks every batch item against the native tree before writing', async () => {
     const changedTree = tree();
     changedTree[0]!.children![0]!.children![1]!.title = 'Changed externally';
     const getTree = vi
@@ -333,7 +387,37 @@ describe('createBookmarkOperationService', () => {
       ],
     });
     expect(repository.move).toHaveBeenCalledTimes(1);
-    expect(getTree).toHaveBeenCalledTimes(1);
+    expect(getTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops a batch when the browser changes an unprocessed item mid-execution', async () => {
+    const firstTree = tree();
+    const changedTree = tree();
+    changedTree[0]!.children![0]!.children![1]!.title = 'Changed mid-batch';
+    let readCount = 0;
+    const getTree = vi.fn<BookmarkRepository['getTree']>(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1 ? firstTree : changedTree);
+    });
+    const repository = repositoryStub(getTree);
+    const service = createBookmarkOperationService({ repository });
+    const plan = service.planMove(flattenBookmarkTree(tree()), ['a', 'b'], {
+      parentId: 'folder',
+    });
+
+    await expect(service.execute(plan)).resolves.toEqual({
+      kind: 'move',
+      results: [
+        { id: 'a', status: 'success', message: '已移动' },
+        {
+          id: 'b',
+          status: 'conflict',
+          message: '书签已在浏览器中变化，请刷新后重试',
+        },
+      ],
+    });
+    expect(repository.move).toHaveBeenCalledTimes(1);
+    expect(getTree).toHaveBeenCalledTimes(2);
   });
 
   it('conflicts folder reorders when the sibling list changes after preview', async () => {

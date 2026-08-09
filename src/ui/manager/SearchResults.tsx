@@ -149,7 +149,7 @@ export function SearchResults({
                   )}
                   {isWritable && onEdit && <button aria-label={`编辑 ${display.displayTitle}`} className="icon-button" onClick={() => onEdit(node)} title={`编辑 ${display.displayTitle}`} type="button"><Pencil aria-hidden="true" size={16} /></button>}
                   {isWritable && onMove && <button aria-label={`移动 ${display.displayTitle}`} className="icon-button" onClick={() => onMove(node)} title={`移动 ${display.displayTitle}`} type="button"><MoveRight aria-hidden="true" size={16} /></button>}
-                  {isWritable && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button" onClick={() => onDelete(node)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
+                  {isWritable && onDelete && <button aria-label={`删除 ${display.displayTitle}`} className="icon-button icon-button--danger" onClick={() => onDelete(node)} title={`删除 ${display.displayTitle}`} type="button"><Trash2 aria-hidden="true" size={16} /></button>}
                 </span>
               </li>
             );

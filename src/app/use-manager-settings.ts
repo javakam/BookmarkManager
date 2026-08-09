@@ -72,9 +72,11 @@ export function useManagerSettings(
   const update = useCallback(
     async (changes: Partial<ManagerSettings>) => {
       const operationId = ++operationSequence.current;
+      const nextTheme = changes.theme ?? currentSettings.current.theme;
       const settings: ManagerSettings = {
         showFolderCounts:
           changes.showFolderCounts ?? currentSettings.current.showFolderCounts,
+        ...(nextTheme === undefined ? {} : { theme: nextTheme }),
       };
       currentSettings.current = settings;
       setSnapshot({ status: 'ready', settings });

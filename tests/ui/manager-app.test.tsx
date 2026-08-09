@@ -288,6 +288,20 @@ async function renderReady(
 }
 
 describe('ManagerApp browse shell', () => {
+  it('shows the running manager version in the brand', async () => {
+    const repository = repositoryStub(vi.fn().mockResolvedValue(managerTree()));
+    render(
+      <ManagerApp
+        openUrl={vi.fn()}
+        repository={repository}
+        version="1.0.4"
+      />,
+    );
+
+    await screen.findByRole('heading', { name: '书签栏' });
+    expect(screen.getByText('v1.0.4')).toBeTruthy();
+  });
+
   it('shows loading, a read error, and a working retry action', async () => {
     const first = deferred<BrowserBookmarkNode[]>();
     const second = deferred<BrowserBookmarkNode[]>();
@@ -329,7 +343,7 @@ describe('ManagerApp browse shell', () => {
 
     fireEvent.submit(titleInput.closest('form') as HTMLFormElement);
     expect(await screen.findByText('将更新 1 项')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       '书签已在浏览器中变化，请刷新后重试',
@@ -351,6 +365,9 @@ describe('ManagerApp browse shell', () => {
       expect.stringContaining('Folder A'),
     ]);
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
+    expect(
+      within(sidebar).getByRole('button', { name: '折叠 书签栏' }).getAttribute('aria-expanded'),
+    ).toBe('true');
     expect(within(sidebar).getByText('浏览')).toBeTruthy();
     expect(within(sidebar).queryByText('Zeta')).toBeNull();
   });
@@ -392,6 +409,21 @@ describe('ManagerApp browse shell', () => {
     expect(nextList.querySelectorAll('.bookmark-row')).toHaveLength(100);
     expect(within(nextList).queryByText('Other Leaf 101')).toBeNull();
     expect(screen.getByRole('button', { name: '显示更多' })).toBeTruthy();
+  });
+
+  it('expands a long folder enough to reveal a located bookmark', async () => {
+    await renderReady(pagedBookmarkTree());
+    const search = screen.getByRole('searchbox', { name: '搜索书签' }) as HTMLInputElement;
+    fireEvent.change(search, { target: { value: 'Bar Leaf 101' } });
+    await screen.findByText('Bar Leaf 101');
+
+    fireEvent.click(screen.getByRole('button', { name: '定位 Bar Leaf 101' }));
+
+    const currentList = await screen.findByRole('list', { name: '当前文件夹内容' });
+    expect(within(currentList).getByText('Bar Leaf 101')).toBeTruthy();
+    expect(
+      within(currentList).getByText('Bar Leaf 101').closest('[data-highlighted="true"]'),
+    ).toBeTruthy();
   });
 
   it('gives the global searchbox an explicit accessible name', async () => {
@@ -530,7 +562,6 @@ describe('ManagerApp browse shell', () => {
     const { repository } = await renderReady(tree);
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
 
-    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
     const sourceRow = within(sidebar)
       .getByRole('button', { name: 'Folder A' })
       .closest('.folder-tree__row') as HTMLElement;
@@ -551,7 +582,7 @@ describe('ManagerApp browse shell', () => {
     fireEvent.drop(targetRow, { clientY: 1, dataTransfer });
 
     expect(await screen.findByText('将调整 1 个文件夹顺序')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认调整顺序' }));
     await screen.findByRole('status', { name: '操作提示' });
 
     expect(repository.move).toHaveBeenCalledWith('folder-a', {
@@ -566,11 +597,21 @@ describe('ManagerApp browse shell', () => {
     ).toBe('false');
   });
 
+  it('keeps the bookmarks bar collapsed after a browser refresh', async () => {
+    const { repository } = await renderReady();
+    const sidebar = screen.getByRole('navigation', { name: '主导航' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: '折叠 书签栏' }));
+    expect(within(sidebar).getByRole('button', { name: '展开 书签栏' })).toBeTruthy();
+
+    repository.emitChanged();
+    await waitFor(() => {
+      expect(within(sidebar).getByRole('button', { name: '展开 书签栏' })).toBeTruthy();
+    });
+  });
+
   it('keeps only one folder context menu open at a time', async () => {
     await renderReady(managerTree());
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
-    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
-
     fireEvent.contextMenu(within(sidebar).getByRole('button', { name: 'Folder A' }), {
       clientX: 9999,
       clientY: 9999,
@@ -607,12 +648,12 @@ describe('ManagerApp browse shell', () => {
     const titleInput = screen.getByRole('textbox', { name: '标题' });
     fireEvent.change(titleInput, { target: { value: '执行中的修改' } });
     fireEvent.submit(titleInput.closest('form') as HTMLFormElement);
-    expect(await screen.findByRole('dialog', { name: '确认操作' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: '确认保存修改' })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '确认执行' }));
-    expect(screen.getByRole('dialog', { name: '确认操作' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+    expect(screen.getByRole('dialog', { name: '确认保存修改' })).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.getByRole('dialog', { name: '确认操作' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '确认保存修改' })).toBeTruthy();
 
     await act(async () => {
       update.resolve({
@@ -624,7 +665,7 @@ describe('ManagerApp browse shell', () => {
       });
     });
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: '确认操作' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: '确认保存修改' })).toBeNull();
     });
   });
 });
@@ -633,7 +674,7 @@ describe('ManagerApp settings', () => {
   it('loads a hidden-count preference and persists a toggle through the storage adapter', async () => {
     const storage = new SettingsStorageAreaStub();
     const settingsRepository = createBrowserManagerSettingsRepository(storage);
-    await settingsRepository.save({ showFolderCounts: false });
+    await settingsRepository.save({ showFolderCounts: false, theme: 'system' });
 
     await renderReady(managerTree(), undefined, settingsRepository);
     const sidebar = screen.getByRole('navigation', { name: '主导航' });
@@ -652,12 +693,43 @@ describe('ManagerApp settings', () => {
     await waitFor(async () => {
       await expect(settingsRepository.load()).resolves.toEqual({
         showFolderCounts: true,
+        theme: 'system',
       });
     });
+    const theme = await screen.findByRole('combobox', { name: '主题' });
+    fireEvent.change(theme, { target: { value: 'dark' } });
+    await waitFor(async () => {
+      await expect(settingsRepository.load()).resolves.toEqual({
+        showFolderCounts: true,
+        theme: 'dark',
+      });
+    });
+    expect(document.querySelector('.manager-app')?.getAttribute('data-theme')).toBe('dark');
     fireEvent.click(within(sidebar).getByRole('button', { name: '浏览' }));
     expect(
       await within(sidebar).findByLabelText('直属 2，合计 3'),
     ).toBeTruthy();
+  });
+
+  it('keeps long native URLs available in rows and the editor', async () => {
+    const tree = managerTree();
+    const zeta = tree[0]?.children?.[0]?.children?.[0];
+    if (!zeta) {
+      throw new Error('missing test bookmark');
+    }
+    const longUrl =
+      'https://example.test/a/very/long/path/that/must/remain/visible?alpha=123456789&beta=中文参数#section-with-a-long-fragment';
+    zeta.url = longUrl;
+    await renderReady(tree);
+
+    const row = screen.getByText('Zeta').closest('.bookmark-row') as HTMLElement;
+    expect(row.querySelector('.bookmark-row__url')?.textContent).toBe(longUrl);
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Zeta' }));
+    const dialog = await screen.findByRole('dialog', { name: '编辑书签' });
+    const urlEditor = within(dialog).getByRole('textbox', { name: '网址' });
+    expect(urlEditor.tagName).toBe('TEXTAREA');
+    expect((urlEditor as HTMLTextAreaElement).value).toBe(longUrl);
   });
 
   it('keeps the native folder tree visible in organize and returns to browse when a folder is selected', async () => {
@@ -668,7 +740,6 @@ describe('ManagerApp settings', () => {
     expect(
       within(sidebar).getByRole('list', { name: '书签目录' }),
     ).toBeTruthy();
-    fireEvent.click(within(sidebar).getByRole('button', { name: '展开 书签栏' }));
     fireEvent.click(within(sidebar).getByRole('button', { name: 'Folder A' }));
 
     expect(await screen.findByRole('heading', { name: 'Folder A' })).toBeTruthy();
@@ -767,6 +838,28 @@ describe('ManagerApp search', () => {
     expect(search.value).toBe('');
     expect(await screen.findByRole('heading', { name: 'Folder B' })).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('已定位 Shared');
+    fireEvent.click(screen.getByRole('button', { name: '返回搜索结果' }));
+    expect(search.value).toBe('shared');
+    expect(await screen.findByRole('heading', { name: '搜索结果' })).toBeTruthy();
+    expect(screen.getAllByText('Shared')).toHaveLength(2);
+  });
+
+  it('does not clear search when a result context menu is closed with Escape', async () => {
+    await renderReady();
+    const search = screen.getByRole('searchbox', { name: '搜索书签' }) as HTMLInputElement;
+    fireEvent.change(search, { target: { value: 'shared' } });
+    await screen.findAllByText('Shared');
+
+    const result = screen.getAllByText('Shared')[0].closest('.search-result-row');
+    if (!result) {
+      throw new Error('missing search result row');
+    }
+    fireEvent.contextMenu(result, { clientX: 20, clientY: 20 });
+    expect(await screen.findByRole('menu')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(search.value).toBe('shared');
   });
 
   it('shows a concise in-page error when opening a new tab fails', async () => {

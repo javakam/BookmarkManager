@@ -2,11 +2,31 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **文档状态（2026-08-09）：** 本文件是早期实现计划和历史记录，不是 v1.0.4 的现行验收清单。涉及新标签页覆盖、链接检测、可选主机权限、`待删除（书签工作台）`、隔离、恢复、恢复锚点和操作记录的任务均未进入 v1.0.4；当前删除为原生书签永久删除，并使用完整递归快照和执行前重读防止误删。当前正式功能、权限和测试边界以源码、构建 Manifest、自动化测试以及同目录产品设计文档的“当前实现边界（v1.0.4）”为准。
+
 **Goal:** Build a Chrome/Edge Manifest V3 manager-only extension that reads and safely operates on native bookmarks, provides fuzzy search and analysis, supports folder counts and same-level ordering, and stays synchronized with browser changes.
 
-**Architecture:** WXT owns the MV3 build and entrypoints. The browser adapter is the only layer allowed to call the bookmarks API, and `browser.bookmarks` remains the only bookmark data source. React consumes complete native snapshots; browser events are merged before rereading the tree, while a typed operation service performs previewed, revalidated writes and stores only UI preferences and minimal recovery anchors.
+**Architecture:** WXT owns the MV3 build and entrypoints. The browser adapter is the only layer allowed to call the bookmarks API, and `browser.bookmarks` remains the only bookmark data source. React consumes complete native snapshots; browser events are merged before rereading the tree, while a typed operation service performs previewed and revalidated writes. v1.0.4 only persists UI preferences.
 
 **Tech Stack:** WXT 0.20.27, React 19.2.7, TypeScript 7.0.2, `fuse.js` 7.4.2, `pinyin-pro` 3.28.1, `lucide-react` 1.24.0, Vitest 4.1.10, Testing Library 16.3.2, Playwright 1.61.1, native `browser.storage.local`.
+
+---
+
+## v1.0.4 发布批次（当前）
+
+- [x] 增加跟随系统、浅色、深色主题并持久化，统一危险操作配色。
+- [x] 重绘扩展页签与工具栏图标；工作台左上角和页签标题显示运行版本。
+- [x] 首次进入默认展开书签栏，保留用户在当前会话中的手动展开/折叠状态。
+- [x] 浏览、搜索、整理页面完整换行显示 URL；编辑网址改为可调整高度的多行输入框。
+- [x] 搜索或整理定位后提供返回入口，恢复来源范围、分类和滚动位置；深层项目自动加载并滚动到可见区域。
+- [x] 修正右键菜单重复打开、窗口边缘定位、滚动关闭、Esc、方向键/Home/End 和焦点恢复。
+- [x] 所有确认按钮使用明确动作语义；永久删除使用“确认删除”并明确提示不可恢复。
+- [x] 批量移动和永久删除逐项重读原生书签树；递归删除比较完整子树，外部变化时跳过冲突项。
+- [x] 优化 1100 CSS 像素以下的两行列表布局，覆盖 1280/1366/1440/1920 与 100%/125%/150% 缩放。
+- [x] 补齐弹窗焦点圈定、背景禁用和关闭后焦点返回。
+- [x] 增加隔离 Chromium 真实扩展 E2E，覆盖原生书签读取、外部变化、定位返回、编辑、永久删除、主题持久化、长 URL 和布局溢出。
+- [x] 完整类型检查、单元测试、构建、E2E 和搜索性能测试通过；生产依赖审计为 0，并完成现有版本约束内的开发依赖修复；生成并校验 v1.0.4 ZIP/CRX。
+- 发布动作：提交本批次后创建 `v1.0.4` tag，并推送 `main` 与 tag。
 
 ---
 

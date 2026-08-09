@@ -5,6 +5,7 @@ import {
   type BookmarkViewModel,
 } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
+import { trapDialogFocus } from './dialog-focus';
 
 interface MoveBookmarkDialogProps {
   readonly folders: readonly BookmarkRecord[];
@@ -35,7 +36,13 @@ export function MoveBookmarkDialog({
   const [targetFolderId, setTargetFolderId] = useState(initialTargetFolderId);
 
   return (
-    <div aria-labelledby="move-dialog-title" aria-modal="true" className="dialog-backdrop" role="dialog">
+    <div
+      aria-labelledby="move-dialog-title"
+      aria-modal="true"
+      className="dialog-backdrop"
+      onKeyDown={trapDialogFocus}
+      role="dialog"
+    >
       <form
         className="operation-dialog"
         onSubmit={(event) => {

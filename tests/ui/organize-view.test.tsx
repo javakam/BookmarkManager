@@ -290,7 +290,7 @@ describe('OrganizeView through ManagerApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
 
     fireEvent.click(screen.getAllByRole('button', { name: '删除 Shared Copy' })[0]);
-    expect(await screen.findByRole('dialog', { name: '确认操作' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: '确认删除' })).toBeTruthy();
     expect(screen.getByText('将永久删除 1 项')).toBeTruthy();
   });
 
@@ -328,6 +328,29 @@ describe('OrganizeView through ManagerApp', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '定位 Shared Copy' })[1]);
     expect(await screen.findByRole('heading', { name: 'Folder B' })).toBeTruthy();
     expect(document.querySelector('[data-highlighted="true"]')?.textContent).toContain('Shared Copy');
+  });
+
+  it('returns to the same organize category and scroll position after locating', async () => {
+    const repository = repositoryStub(vi.fn().mockResolvedValue(organizeTree()));
+    render(<ManagerApp openUrl={vi.fn()} repository={repository} />);
+    await screen.findByRole('heading', { name: '书签栏' });
+    fireEvent.click(screen.getByRole('button', { name: '整理' }));
+    await screen.findAllByText('确定重复');
+    fireEvent.click(screen.getByRole('tab', { name: /相似项/ }));
+    await screen.findAllByText('Project Dashboard');
+
+    const main = document.querySelector('.app-main') as HTMLElement;
+    main.scrollTop = 184;
+    fireEvent.click(screen.getAllByRole('button', { name: '定位 Project Dashboard' })[0]);
+    expect(await screen.findByRole('button', { name: '返回整理结果' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '返回整理结果' }));
+
+    expect(
+      (await screen.findByRole('tab', { name: /相似项/ })).getAttribute(
+        'aria-selected',
+      ),
+    ).toBe('true');
+    expect(main.scrollTop).toBe(184);
   });
 
   it('searching from organize returns to browse and preserves the active folder', async () => {

@@ -8,8 +8,10 @@ type BuiltManifest = {
   description?: string;
   version?: string;
   permissions?: string[];
+  icons?: Record<string, string>;
   optional_host_permissions?: string[];
   action?: {
+    default_icon?: Record<string, string>;
     default_title?: string;
   };
 };
@@ -30,14 +32,28 @@ describe('Chrome MV3 构建产物', () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.name).toBe('书签工作台');
     expect(manifest.description).toBe('本地优先的浏览器原生书签管理器');
-    expect(manifest.version).toBe('1.0.3');
+    expect(manifest.version).toBe('1.0.4');
     expect(manifest.permissions).toEqual([
       'bookmarks',
       'storage',
       'favicon',
     ]);
     expect(manifest).not.toHaveProperty('optional_host_permissions');
+    expect(manifest.icons).toEqual({
+      16: 'icon-16.png',
+      32: 'icon-32.png',
+      48: 'icon-48.png',
+      128: 'icon-128.png',
+    });
+    expect(manifest.action?.default_icon).toEqual({
+      16: 'icon-16.png',
+      32: 'icon-32.png',
+      48: 'icon-48.png',
+    });
     expect(manifest.action?.default_title).toBe('打开书签工作台');
+    for (const icon of Object.values(manifest.icons ?? {})) {
+      expect(existsSync(resolve('.output/chrome-mv3', icon))).toBe(true);
+    }
     expect(manifest).not.toHaveProperty('chrome_url_overrides');
   });
 

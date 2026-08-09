@@ -144,7 +144,7 @@ async function renderReady(tree = operationTree()) {
   return repository;
 }
 
-async function confirmOperation(name = '确认执行') {
+async function confirmOperation(name: string) {
   fireEvent.click(await screen.findByRole('button', { name }));
   await screen.findByRole('status', { name: '操作提示' });
 }
@@ -161,7 +161,7 @@ describe('single bookmark operations', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
 
     expect(await screen.findByText('将新建 1 个书签')).toBeTruthy();
-    await confirmOperation();
+    await confirmOperation('确认新建');
 
     expect(repository.createBookmark).toHaveBeenCalledWith({
       parentId: 'bar',
@@ -179,7 +179,7 @@ describe('single bookmark operations', () => {
       target: { value: '资料' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
-    await confirmOperation();
+    await confirmOperation('确认新建');
 
     expect(repository.createFolder).toHaveBeenCalledWith({
       parentId: 'bar',
@@ -199,12 +199,36 @@ describe('single bookmark operations', () => {
       target: { value: 'https://changed.example.test' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
-    await confirmOperation();
+    await confirmOperation('确认保存');
 
     expect(repository.update).toHaveBeenCalledWith('icon-only', {
       title: '',
       url: 'https://changed.example.test',
     });
+  });
+
+  it('keeps keyboard focus inside dialogs and restores the opener after cancel', async () => {
+    await renderReady();
+    const opener = screen.getByRole('button', {
+      name: '编辑 important.example.test',
+    });
+    opener.focus();
+    fireEvent.click(opener);
+
+    const dialog = await screen.findByRole('dialog', { name: '编辑书签' });
+    const title = within(dialog).getByLabelText('标题');
+    const preview = within(dialog).getByRole('button', { name: '预览' });
+    preview.focus();
+    fireEvent.keyDown(preview, { key: 'Tab' });
+    expect(document.activeElement).toBe(title);
+
+    fireEvent.keyDown(title, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(preview);
+    expect(document.querySelector('.app-body')?.hasAttribute('inert')).toBe(true);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    expect(document.querySelector('.app-body')?.hasAttribute('inert')).toBe(false);
   });
 
   it('moves a folder only to valid writable folders', async () => {
@@ -227,7 +251,7 @@ describe('single bookmark operations', () => {
       target: { value: 'other' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
-    await confirmOperation();
+    await confirmOperation('确认移动');
 
     expect(repository.move).toHaveBeenCalledWith('folder-a', {
       parentId: 'other',
@@ -241,9 +265,9 @@ describe('single bookmark operations', () => {
       screen.getByRole('button', { name: '删除 important.example.test' }),
     );
 
-    const confirm = await screen.findByRole('dialog', { name: '确认操作' });
+    const confirm = await screen.findByRole('dialog', { name: '确认删除' });
     expect(within(confirm).getByText('删除后无法恢复')).toBeTruthy();
-    await confirmOperation();
+    await confirmOperation('确认删除');
 
     expect(repository.remove).toHaveBeenCalledWith('icon-only');
     expect(repository.createFolder).not.toHaveBeenCalled();
