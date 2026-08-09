@@ -252,6 +252,7 @@ function candidatePairs(
     string,
     readonly [PreparedBookmark, PreparedBookmark]
   >();
+  let candidateGenerationTruncated = false;
 
   function addRawCandidate(
     left: PreparedBookmark,
@@ -287,6 +288,7 @@ function candidatePairs(
         }
       }
     } else {
+      candidateGenerationTruncated = true;
       for (let leftIndex = 0; leftIndex < members.length; leftIndex += 1) {
         const end = Math.min(
           members.length,
@@ -311,7 +313,7 @@ function candidatePairs(
     );
   const counts = new Map<string, number>();
   const selected: ScoredCandidate[] = [];
-  let truncated = false;
+  let truncated = candidateGenerationTruncated;
   for (const candidate of scoredCandidates) {
     const leftId = candidate.left.record.id;
     const rightId = candidate.right.record.id;

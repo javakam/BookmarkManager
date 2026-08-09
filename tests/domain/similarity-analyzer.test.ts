@@ -323,6 +323,42 @@ describe('similarity analyzer', () => {
     ).toBe(true);
   });
 
+  it('marks large candidate blocks as truncated when locality pruning can omit a match', () => {
+    const left = bookmark(
+      'left-edge',
+      '',
+      'https://large-block.example.test/a-common-very-long-shared-path',
+    );
+    const right = bookmark(
+      'right-edge',
+      '',
+      'https://large-block.example.test/z-common-very-long-shared-path',
+    );
+    expect(
+      analyzeSimilarBookmarks([left, right]).pairs.some(({ members }) =>
+        members.every(({ id }) => id === 'left-edge' || id === 'right-edge'),
+      ),
+    ).toBe(true);
+
+    const fillers = Array.from({ length: 63 }, (_, index) =>
+      bookmark(
+        `filler-${index}`,
+        '',
+        `https://large-block.example.test/m-${index
+          .toString(36)
+          .padStart(3, '0')}-unrelated-${Math.imul(index + 1, 2_654_435_761).toString(16)}`,
+      ),
+    );
+    const analysis = analyzeSimilarBookmarks([left, ...fillers, right]);
+
+    expect(analysis.truncated).toBe(true);
+    expect(
+      analysis.pairs.some(({ members }) =>
+        members.every(({ id }) => id === 'left-edge' || id === 'right-edge'),
+      ),
+    ).toBe(false);
+  });
+
   it('bounds candidate comparisons for 5000 bookmarks instead of scanning all pairs', () => {
     const records = Array.from({ length: 5_000 }, (_, index) => {
       const hash = Math.imul(index + 1, 2_654_435_761)

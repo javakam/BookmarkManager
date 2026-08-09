@@ -1,6 +1,6 @@
 {
   "name": "bookmark-manager-extension",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -40,6 +40,6 @@
     "typescript": "7.0.2",
     "vite": "8.1.4",
     "vitest": "4.1.10",
-    "wxt": "0.20.27"
+    "wxt": "0.21.3"
   }
 }

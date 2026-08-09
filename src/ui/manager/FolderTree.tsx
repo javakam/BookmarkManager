@@ -137,6 +137,9 @@ function FolderTreeNode({
       if (!payload.sourceId) {
         return;
       }
+      if (payload.sourceId === folder.id) {
+        return;
+      }
       if (!canReorder) {
         onInvalidDrop?.();
         return;

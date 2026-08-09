@@ -73,28 +73,30 @@ describe('search domain', () => {
     const matches = [
       createSearchEntry(record('exact', 'zhong'), 0),
       createSearchEntry(record('prefix', 'zhonghua'), 1),
+      createSearchEntry(record('contains', 'notes zhong archive'), 2),
       createSearchEntry(
         record('domain', 'Portal', {
           url: 'https://zhong.example.test/home',
         }),
-        2,
+        3,
       ),
-      createSearchEntry(record('pinyin-priority', '中文'), 3),
+      createSearchEntry(record('pinyin-priority', '中文'), 4),
       createSearchEntry(
         record('path', 'Handbook', { path: ['Team', 'zhong docs'] }),
-        4,
+        5,
       ),
       createSearchEntry(
         record('url', 'Article', {
           url: 'https://example.test/articles/zhong',
         }),
-        5,
+        6,
       ),
     ].map((entry) => matchSearchEntry(entry, query));
 
     expect(matches.map((match) => match?.reasons[0])).toEqual([
       'title-exact',
       'title-prefix',
+      'title-contains',
       'domain',
       'pinyin',
       'path',
@@ -105,6 +107,15 @@ describe('search domain', () => {
         .map((match) => match?.score)
         .sort((left, right) => (right ?? 0) - (left ?? 0)),
     );
+  });
+
+  it('matches a one-character keyword in the middle of a title directly', () => {
+    const entry = createSearchEntry(record('middle', '我的重要文档'), 0);
+
+    expect(matchSearchEntry(entry, '要')).toEqual({
+      score: 550,
+      reasons: ['title-contains'],
+    });
   });
 
   it('does not throw for invalid URLs and keeps them searchable as raw URLs', () => {

@@ -503,7 +503,9 @@ export function OrganizeView({
       {activeTab === 'similar' && (
         <div aria-labelledby="organize-tab-similar" id="organize-panel-similar" role="tabpanel">
           {analysis.similar.truncated && (
-            <div className="organize-truncated" role="status">结果较多，仅显示最相关项目</div>
+            <div className="organize-truncated" role="status">
+              候选范围较大，已启用性能保护，结果可能不完整
+            </div>
           )}
           {similarGroups.length === 0 ? (
             <div className="content-state">没有发现相似项</div>

@@ -41,17 +41,51 @@ export interface BookmarkRepository {
 function mapBrowserBookmarkNode(
   node: BrowserBookmarkNode,
 ): BrowserBookmarkNode {
-  return {
+  const mapped: BrowserBookmarkNode = {
     id: node.id,
     parentId: node.parentId,
     index: node.index,
     title: node.title,
     url: node.url,
-    children: node.children?.map(mapBrowserBookmarkNode),
+    children: node.children
+      ? new Array<BrowserBookmarkNode>(node.children.length)
+      : undefined,
     unmodifiable: node.unmodifiable,
     folderType: node.folderType,
     dateAdded: node.dateAdded,
   };
+  const pending: Array<{
+    readonly source: BrowserBookmarkNode;
+    readonly target: BrowserBookmarkNode;
+  }> = [{ source: node, target: mapped }];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current?.source.children || !current.target.children) {
+      continue;
+    }
+    for (let index = 0; index < current.source.children.length; index += 1) {
+      const child = current.source.children[index];
+      if (!child) {
+        continue;
+      }
+      const childTarget: BrowserBookmarkNode = {
+        id: child.id,
+        parentId: child.parentId,
+        index: child.index,
+        title: child.title,
+        url: child.url,
+        children: child.children
+          ? new Array<BrowserBookmarkNode>(child.children.length)
+          : undefined,
+        unmodifiable: child.unmodifiable,
+        folderType: child.folderType,
+        dateAdded: child.dateAdded,
+      };
+      current.target.children[index] = childTarget;
+      pending.push({ source: child, target: childTarget });
+    }
+  }
+  return mapped;
 }
 
 export function createChromeBookmarkRepository(

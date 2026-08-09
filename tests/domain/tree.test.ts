@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { BrowserBookmarkNode } from '../../src/domain/bookmarks';
 import { flattenBookmarkTree } from '../../src/domain/tree';
 import {
   BOOKMARK_IDS,
@@ -160,5 +161,35 @@ describe('flattenBookmarkTree', () => {
     expect(byId.get(BOOKMARK_IDS.managedChild)?.isUnmodifiable).toBe(true);
     expect(byId.get(BOOKMARK_IDS.managedLeaf)?.isUnmodifiable).toBe(true);
     expect(byId.get(BOOKMARK_IDS.file)?.isUnmodifiable).toBe(false);
+  });
+
+  it('flattens a 3000-level folder chain without overflowing the call stack', () => {
+    const root: BrowserBookmarkNode = {
+      id: 'deep-0',
+      title: '',
+      children: [],
+    };
+    let parent = root;
+    for (let depth = 1; depth <= 3_000; depth += 1) {
+      const child = {
+        id: `deep-${depth}`,
+        parentId: parent.id,
+        index: 0,
+        title: `Folder ${depth}`,
+        children: [],
+      };
+      parent.children = [child];
+      parent = child;
+    }
+
+    const records = flattenBookmarkTree([root]);
+
+    expect(records).toHaveLength(3_001);
+    expect(records.at(-1)).toMatchObject({
+      id: 'deep-3000',
+      depth: 3_000,
+      parentId: 'deep-2999',
+    });
+    expect(records.at(-1)?.path).toHaveLength(3_000);
   });
 });

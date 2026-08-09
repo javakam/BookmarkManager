@@ -525,7 +525,9 @@ describe('OrganizeView pagination', () => {
     expect(screen.getAllByText('Duplicate 50')).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('tab', { name: /相似项/ }));
-    expect(screen.getByText('结果较多，仅显示最相关项目')).toBeTruthy();
+    expect(
+      screen.getByText('候选范围较大，已启用性能保护，结果可能不完整'),
+    ).toBeTruthy();
     expect(screen.queryByText('Similar 50 A')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }));
     expect(screen.getByText('Similar 50 A')).toBeTruthy();

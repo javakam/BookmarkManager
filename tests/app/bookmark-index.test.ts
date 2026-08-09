@@ -33,10 +33,11 @@ describe('BookmarkIndex', () => {
     expect(index.search('  \u3000 ')).toEqual([]);
   });
 
-  it('ranks exact, prefix, domain, pinyin, path, URL, then fuzzy matches', () => {
+  it('ranks exact, prefix, title contains, domain, pinyin, path, URL, then fuzzy matches', () => {
     const index = new BookmarkIndex([
       record('exact', 'zhong'),
       record('prefix', 'zhonghua'),
+      record('contains', 'notes zhong archive'),
       record('domain', 'Portal', {
         url: 'https://zhong.example.test/home',
       }),
@@ -53,6 +54,7 @@ describe('BookmarkIndex', () => {
     expect(results.map(({ node }) => node.id)).toEqual([
       'exact',
       'prefix',
+      'contains',
       'domain',
       'pinyin',
       'path',
@@ -62,6 +64,7 @@ describe('BookmarkIndex', () => {
     expect(results.map(({ reasons }) => reasons[0])).toEqual([
       'title-exact',
       'title-prefix',
+      'title-contains',
       'domain',
       'pinyin',
       'path',
@@ -89,6 +92,21 @@ describe('BookmarkIndex', () => {
 
     expect(index.search('q')).toEqual([]);
     expect(index.search('🧫')).toEqual([]);
+  });
+
+  it('returns every direct middle-title match instead of a 20-item fuzzy tail', () => {
+    const index = new BookmarkIndex(
+      Array.from({ length: 100 }, (_, itemIndex) =>
+        record(`middle-${itemIndex}`, `我的参考文档 ${itemIndex}`),
+      ),
+    );
+
+    const results = index.search('参考文档');
+
+    expect(results).toHaveLength(100);
+    expect(results.every(({ reasons }) => reasons[0] === 'title-contains')).toBe(
+      true,
+    );
   });
 
   it('uses fuzzy matching for a two-character typo', () => {

@@ -52,7 +52,7 @@ type MovePlan = PlanBase & {
 type DeletePlan = PlanBase & {
   readonly kind: 'delete';
   readonly sources: readonly BookmarkFingerprint[];
-  /** Full subtree snapshot used to protect recursive permanent deletion. */
+  /** Full subtree snapshot used to protect permanent deletion. */
   readonly affected: readonly BookmarkFingerprint[];
   readonly affectedCount: number;
   readonly folderCount: number;
@@ -282,23 +282,7 @@ function matchesDeleteSourceSnapshot(
   plan: DeletePlan,
   source: BookmarkFingerprint,
 ): boolean {
-  const expectedById = new Map(
-    plan.affected.map((fingerprint) => [fingerprint.id, fingerprint]),
-  );
-  const expectedAffected = plan.affected.filter((fingerprint) => {
-    let current: BookmarkFingerprint | undefined = fingerprint;
-    const visited = new Set<string>();
-    while (current && !visited.has(current.id)) {
-      if (current.id === source.id) {
-        return true;
-      }
-      visited.add(current.id);
-      current = current.parentId
-        ? expectedById.get(current.parentId)
-        : undefined;
-    }
-    return false;
-  });
+  const expectedAffected = collectExpectedDeleteFingerprints(plan, source);
   const currentAffected = collectCurrentDeleteRecords(records, [source]);
   if (currentAffected.length !== expectedAffected.length) {
     return false;
@@ -314,6 +298,76 @@ function matchesDeleteSourceSnapshot(
         ),
     );
   });
+}
+
+function collectExpectedDeleteFingerprints(
+  plan: DeletePlan,
+  source: BookmarkFingerprint,
+): readonly BookmarkFingerprint[] {
+  const expectedById = new Map(
+    plan.affected.map((fingerprint) => [fingerprint.id, fingerprint]),
+  );
+  return plan.affected.filter((fingerprint) => {
+    let current: BookmarkFingerprint | undefined = fingerprint;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (current.id === source.id) {
+        return true;
+      }
+      visited.add(current.id);
+      current = current.parentId
+        ? expectedById.get(current.parentId)
+        : undefined;
+    }
+    return false;
+  });
+}
+
+function createSafeDeleteOrder(
+  plan: DeletePlan,
+  source: BookmarkFingerprint,
+): readonly BookmarkFingerprint[] {
+  const expected = collectExpectedDeleteFingerprints(plan, source);
+  const expectedById = new Map(
+    expected.map((fingerprint) => [fingerprint.id, fingerprint]),
+  );
+  const childrenByParentId = new Map<string, BookmarkFingerprint[]>();
+  for (const fingerprint of expected) {
+    if (!fingerprint.parentId || !expectedById.has(fingerprint.parentId)) {
+      continue;
+    }
+    const children = childrenByParentId.get(fingerprint.parentId) ?? [];
+    children.push(fingerprint);
+    childrenByParentId.set(fingerprint.parentId, children);
+  }
+  for (const children of childrenByParentId.values()) {
+    children.sort(
+      (left, right) =>
+        left.index - right.index || left.id.localeCompare(right.id),
+    );
+  }
+
+  const ordered: BookmarkFingerprint[] = [];
+  const pending: Array<{
+    readonly fingerprint: BookmarkFingerprint;
+    readonly expanded: boolean;
+  }> = [{ fingerprint: source, expanded: false }];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+    if (current.expanded) {
+      ordered.push(current.fingerprint);
+      continue;
+    }
+    pending.push({ fingerprint: current.fingerprint, expanded: true });
+    const children = childrenByParentId.get(current.fingerprint.id) ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({ fingerprint: children[index], expanded: false });
+    }
+  }
+  return ordered;
 }
 
 function removeNestedDeleteSources(
@@ -609,6 +663,18 @@ export function createBookmarkOperationService({
             });
             continue;
           }
+          if (
+            plan.kind === 'move' &&
+            plan.index === undefined &&
+            currentSource?.parentId === plan.target.id
+          ) {
+            results.push({
+              id: source.id,
+              status: 'success',
+              message: '已在目标文件夹中',
+            });
+            continue;
+          }
           try {
             await repository.move(source.id, {
               parentId: plan.target.id,
@@ -645,7 +711,7 @@ export function createBookmarkOperationService({
         for (const [sourceIndex, source] of plan.sources.entries()) {
           // A previous deletion can shift sibling indexes. Re-read before each
           // later source and compare stable fields plus its complete subtree so
-          // external additions or edits are never swept into removeTree.
+          // external additions or edits are not included in the confirmed work.
           if (
             sourceIndex > 0 &&
             !matchesDeleteSourceSnapshot(
@@ -661,15 +727,26 @@ export function createBookmarkOperationService({
             });
             continue;
           }
+          let removedCount = 0;
           try {
-            if (source.isFolder && repository.removeTree) {
-              await repository.removeTree(source.id);
-            } else {
-              await repository.remove(source.id);
+            const deleteOrder = createSafeDeleteOrder(plan, source);
+            // Ordinary removal is deliberate: a concurrently added child keeps
+            // its folder non-empty and blocks deletion instead of being swept.
+            for (const expected of deleteOrder) {
+              await repository.remove(expected.id);
+              removedCount += 1;
             }
             results.push({ id: source.id, status: 'success', message: '已删除' });
           } catch (error) {
-            results.push(createFailure(source.id, error));
+            const failure = createFailure(source.id, error);
+            results.push(
+              removedCount > 0
+                ? {
+                    ...failure,
+                    message: `已删除 ${removedCount} 个确认项，后续删除未完成：${failure.message}`,
+                  }
+                : failure,
+            );
           }
         }
         return { kind: plan.kind, results };

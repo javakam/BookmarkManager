@@ -202,8 +202,31 @@ describe('single bookmark operations', () => {
     await confirmOperation('确认保存');
 
     expect(repository.update).toHaveBeenCalledWith('icon-only', {
-      title: '',
       url: 'https://changed.example.test',
+    });
+  });
+
+  it('edits the title of an existing bookmarklet without resubmitting its URL', async () => {
+    const nativeTree = operationTree();
+    nativeTree[0]?.children?.[0]?.children?.unshift({
+      id: 'bookmarklet',
+      parentId: 'bar',
+      index: 0,
+      title: 'Bookmarklet',
+      url: 'javascript:void(document.body.dataset.saved=1)',
+    });
+    const repository = await renderReady(nativeTree);
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Bookmarklet' }));
+    const dialog = await screen.findByRole('dialog', { name: '编辑书签' });
+    fireEvent.change(within(dialog).getByLabelText('标题'), {
+      target: { value: 'Bookmarklet updated' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
+    await confirmOperation('确认保存');
+
+    expect(repository.update).toHaveBeenCalledWith('bookmarklet', {
+      title: 'Bookmarklet updated',
     });
   });
 
@@ -234,6 +257,9 @@ describe('single bookmark operations', () => {
       screen.getByRole('button', { name: '编辑 important.example.test' }),
     );
     const editor = await screen.findByRole('dialog', { name: '编辑书签' });
+    fireEvent.change(within(editor).getByLabelText('标题'), {
+      target: { value: 'Changed title' },
+    });
     fireEvent.click(within(editor).getByRole('button', { name: '预览' }));
     const confirm = await screen.findByRole('dialog', {
       name: '确认保存修改',
@@ -261,7 +287,9 @@ describe('single bookmark operations', () => {
     expect(document.activeElement).toBe(title);
 
     fireEvent.keyDown(title, { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(preview);
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole('button', { name: '取消' }),
+    );
     expect(document.querySelector('.app-body')?.hasAttribute('inert')).toBe(true);
 
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
@@ -279,6 +307,7 @@ describe('single bookmark operations', () => {
       .map((option) => option.textContent);
 
     expect(options).toContain('其他书签');
+    expect(options).not.toContain('书签栏');
     expect(options).not.toContain('Folder A');
     expect(options).not.toContain('Nested');
     expect(

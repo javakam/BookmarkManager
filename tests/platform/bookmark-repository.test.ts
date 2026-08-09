@@ -170,6 +170,40 @@ describe('createChromeBookmarkRepository', () => {
     expect(result[0]?.children?.[0]).not.toHaveProperty('syncing');
   });
 
+  it('copies a 3000-level browser tree without overflowing the call stack', async () => {
+    const api = new BookmarksApiStub();
+    const root: BrowserBookmarkNode = {
+      id: 'deep-0',
+      title: '',
+      children: [],
+    };
+    let parent = root;
+    for (let depth = 1; depth <= 3_000; depth += 1) {
+      const child: BrowserBookmarkNode = {
+        id: `deep-${depth}`,
+        parentId: parent.id,
+        index: 0,
+        title: `Folder ${depth}`,
+        children: [],
+      };
+      parent.children = [child];
+      parent = child;
+    }
+    api.tree = [root];
+
+    const [mappedRoot] = await createChromeBookmarkRepository(api).getTree();
+    let current = mappedRoot;
+    let depth = 0;
+    while (current?.children?.[0]) {
+      current = current.children[0];
+      depth += 1;
+    }
+
+    expect(depth).toBe(3_000);
+    expect(current?.id).toBe('deep-3000');
+    expect(mappedRoot === root).toBe(false);
+  });
+
   it('creates a bookmark with the exact parent, index, empty title, and URL', async () => {
     const api = new BookmarksApiStub();
     const repository = createChromeBookmarkRepository(api);

@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **文档状态（2026-08-09）：** 本文件是早期实现计划和历史记录，不是现行验收清单。v1.0.5 已发布。涉及新标签页覆盖、链接检测、可选主机权限、`待删除（书签工作台）`、隔离、恢复、恢复锚点和操作记录的任务均未进入正式版本；当前删除为原生书签永久删除，并使用完整递归快照和执行前重读防止误删。当前功能、权限和测试边界以源码、构建 Manifest、自动化测试以及同目录产品设计文档顶部的版本边界为准。
+> **文档状态（2026-08-09）：** 本文件是早期实现计划和历史记录，不是现行验收清单。v1.0.6 已发布。涉及新标签页覆盖、链接检测、可选主机权限、`待删除（书签工作台）`、隔离、恢复、恢复锚点和操作记录的任务均未进入正式版本；当前删除为原生书签永久删除，并使用完整递归快照、执行前重读和自底向上逐项 `bookmarks.remove` 防止误删，不调用 `bookmarks.removeTree`。当前功能、权限和测试边界以源码、构建 Manifest、自动化测试以及同目录产品设计文档顶部的版本边界为准。
 
 **Goal:** Build a Chrome/Edge Manifest V3 manager-only extension that reads and safely operates on native bookmarks, provides fuzzy search and analysis, supports folder counts and same-level ordering, and stays synchronized with browser changes.
 
 **Architecture:** WXT owns the MV3 build and entrypoints. The browser adapter is the only layer allowed to call the bookmarks API, and `browser.bookmarks` remains the only bookmark data source. React consumes complete native snapshots; browser events are merged before rereading the tree, while a typed operation service performs previewed and revalidated writes. The extension only persists UI preferences.
 
-**Tech Stack:** WXT 0.20.27, React 19.2.7, TypeScript 7.0.2, `fuse.js` 7.4.2, `pinyin-pro` 3.28.1, `lucide-react` 1.24.0, Vitest 4.1.10, Testing Library 16.3.2, Playwright 1.61.1, native `browser.storage.local`.
+**Tech Stack:** WXT 0.21.3, React 19.2.7, TypeScript 7.0.2, `fuse.js` 7.4.2, `pinyin-pro` 3.28.1, `lucide-react` 1.24.0, Vitest 4.1.10, Testing Library 16.3.2, Playwright 1.61.1, native `browser.storage.local`.
 
 ---
 
@@ -41,6 +41,22 @@
 - [x] 类型检查、218 项完整测试、真实隔离 Chromium E2E、性能基准和生产依赖审计通过。
 - [x] 已生成并校验 v1.0.5 ZIP/CRX：两者内置 Manifest 均为 MV3 `1.0.5`，CRX 头为 `Cr24`、版本为 3。
 - [x] 发布提交为 `733e794`；已创建 `v1.0.5` tag，并推送 `main` 与 tag。
+
+---
+
+## v1.0.6 发布批次（已完成）
+
+- [x] 永久删除改为按确认快照自底向上逐项调用 `bookmarks.remove`；确认后外部新增内容不会被递归带走，部分完成会明确报告已删除数量。
+- [x] 标题中部关键词改为直接匹配，避免大量明确结果退化为最多 20 条模糊结果；相似项候选启用近邻裁剪时明确标记结果可能不完整。
+- [x] 移动到当前文件夹改为无操作，单一来源的移动目标不再显示当前文件夹；编辑只提交变化字段，已有 bookmarklet 可以仅修改标题。
+- [x] 原生书签树复制和扁平化改为显式栈，并以 3000 层目录链验证不会栈溢出。
+- [x] 复用其他窗口中的工作台时同步聚焦所属窗口；文件夹拖到自身按取消处理。
+- [x] 提升浅色、暖红和雾蓝主题的次要文字对比度，并增加 4.5:1 自动门槛。
+- [x] WXT 从 0.20.27 升级到 0.21.3，移除存在安全告警的旧开发工具链；TypeScript 类型检查、25 个测试文件共 229 项测试、生产构建及 5 项隔离 Chromium E2E 全部通过，完整依赖审计为 0。
+- [x] 性能基准通过：5000 条搜索 p95 为 65.822ms、保留堆 10.4MB；7001 节点整理为 273.8ms、保留堆 4.2MB。
+- [x] 已生成并校验 v1.0.6 ZIP/CRX：两者内置 Manifest 均为 MV3 `1.0.6` 且内容一致；CRX 头为 `Cr24`、版本为 3，扩展 ID 保持 `nencfbgdcgfajngfepkmckpnmdoijojd`。
+- [x] 发布包 SHA256：ZIP `58A002A8900E259D29996A45BA165BFE7954D62C212DA6833FD7ACB7C658F077`；CRX `F510C53F5F16BC9A1457F9D951044BF40B8C2DACB3D925D749A669F38FD70DD9`。
+- 发布动作：提交本批次后创建 `v1.0.6` tag，并推送 `main` 与 tag。
 
 ---
 

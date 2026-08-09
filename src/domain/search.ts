@@ -6,6 +6,7 @@ import { getPinyinForms } from './pinyin';
 export type SearchReason =
   | 'title-exact'
   | 'title-prefix'
+  | 'title-contains'
   | 'domain'
   | 'path'
   | 'url'
@@ -43,6 +44,7 @@ export interface SearchResult extends SearchMatch {
 export const SEARCH_REASON_SCORE: Readonly<Record<SearchReason, number>> = {
   'title-exact': 700,
   'title-prefix': 600,
+  'title-contains': 550,
   domain: 500,
   pinyin: 400,
   path: 300,
@@ -151,6 +153,8 @@ export function matchNormalizedSearchEntry(
     reasons.push('title-exact');
   } else if (entry.title.startsWith(normalizedQuery)) {
     reasons.push('title-prefix');
+  } else if (entry.title.includes(normalizedQuery)) {
+    reasons.push('title-contains');
   }
 
   if (entry.hostAliases.some((host) => host.includes(normalizedQuery))) {

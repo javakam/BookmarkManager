@@ -294,12 +294,12 @@ describe('ManagerApp browse shell', () => {
       <ManagerApp
         openUrl={vi.fn()}
         repository={repository}
-        version="1.0.5"
+        version="1.0.6"
       />,
     );
 
     await screen.findByRole('heading', { name: '书签栏' });
-    expect(screen.getByText('v1.0.5')).toBeTruthy();
+    expect(screen.getByText('v1.0.6')).toBeTruthy();
   });
 
   it('shows loading, a read error, and a working retry action', async () => {
@@ -582,6 +582,11 @@ describe('ManagerApp browse shell', () => {
     expect(targetRow.className).toMatch(/folder-tree__row--drop-(before|after)/);
     fireEvent.dragEnd(sourceRow, { dataTransfer });
     expect(targetRow.className).not.toMatch(/folder-tree__row--drop-(before|after)/);
+
+    fireEvent.dragStart(sourceRow, { dataTransfer });
+    fireEvent.drop(sourceRow, { clientY: 1, dataTransfer });
+    expect(screen.queryByText('只能在同一层级调整文件夹顺序')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '确认调整顺序' })).toBeNull();
 
     fireEvent.dragStart(sourceRow, { dataTransfer });
     fireEvent.dragOver(targetRow, { clientY: 1, dataTransfer });

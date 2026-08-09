@@ -32,7 +32,7 @@ async function launchIsolatedExtension(): Promise<IsolatedExtension> {
   }
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
-  const folderTitle = `v1.0.5 E2E ${Date.now()}`;
+  const folderTitle = `v1.0.6 E2E ${Date.now()}`;
   const longUrl =
     'https://native.example.test/a/very/long/path/that/must/remain/visible?alpha=123456789&beta=中文参数#section-with-a-long-fragment';
   // Bookmark APIs are only exposed to extension contexts. Create test data in
@@ -59,6 +59,11 @@ async function launchIsolatedExtension(): Promise<IsolatedExtension> {
       parentId: folder.id,
       title: '',
       url: 'https://native.example.test/icon-only',
+    });
+    await api.bookmarks.create({
+      parentId: folder.id,
+      title: 'E2E Bookmarklet',
+      url: 'javascript:void(document.body.dataset.bookmarklet=1)',
     });
     return { folderId: folder.id as string, longUrl: bookmark.url ?? longUrl };
   }, { folderTitle, longUrl });
@@ -119,6 +124,66 @@ test.describe('真实 Chromium 扩展回归', () => {
     }
   });
 
+  test('已有工作台位于其他窗口时会聚焦其所属窗口', async () => {
+    const isolated = await launchIsolatedExtension();
+    const managerLocation = new URL(isolated.page.url());
+    const popupUrl = `${managerLocation.protocol}//${managerLocation.host}/popup.html`;
+    let popupWindowId: number | undefined;
+    try {
+      const popupPagePromise = isolated.context.waitForEvent('page');
+      popupWindowId = await isolated.page.evaluate(async (url) => {
+        const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
+        const createdWindow = await api.windows.create({ url, focused: true });
+        return createdWindow.id as number;
+      }, popupUrl);
+      const popup = await popupPagePromise;
+      await popup.waitForURL(popupUrl);
+      await expect
+        .poll(() =>
+          isolated.page.evaluate(async () => {
+            const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
+            const tab = await api.tabs.getCurrent();
+            return (await api.windows.get(tab.windowId)).focused as boolean;
+          }),
+        )
+        .toBe(false);
+
+      await popup.getByRole('button', { name: '打开书签工作台' }).click();
+
+      await expect
+        .poll(() =>
+          isolated.page.evaluate(async () => {
+            const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
+            const tab = await api.tabs.getCurrent();
+            return (await api.windows.get(tab.windowId)).focused as boolean;
+          }),
+        )
+        .toBe(true);
+      await expect
+        .poll(
+          () =>
+            isolated.context
+              .pages()
+              .filter((page) => page.url() === isolated.page.url()).length,
+        )
+        .toBe(1);
+    } finally {
+      if (popupWindowId !== undefined) {
+        await isolated.page.evaluate(async (windowId) => {
+          const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
+          try {
+            await api.windows.remove(windowId);
+          } catch {
+            // The popup closes its one-tab window after the command succeeds.
+          }
+        }, popupWindowId);
+      }
+      await removeIsolatedFolder(isolated.page, isolated.folderId);
+      await isolated.context.close();
+      rmSync(isolated.profile, { recursive: true, force: true });
+    }
+  });
+
   test('读取原生书签并完成搜索、定位返回、编辑和永久删除', async () => {
     const isolated = await launchIsolatedExtension();
     const consoleErrors: string[] = [];
@@ -131,7 +196,7 @@ test.describe('真实 Chromium 扩展回归', () => {
 
     try {
       await expect(
-        isolated.page.getByText('v1.0.5', { exact: true }),
+        isolated.page.getByText('v1.0.6', { exact: true }),
       ).toBeVisible();
       await expect(
         isolated.page.getByRole('button', { name: '折叠 书签栏' }),
@@ -142,11 +207,28 @@ test.describe('真实 Chromium 扩展回归', () => {
         .click();
       await expect(isolated.page.getByText(isolated.longUrl, { exact: true })).toBeVisible();
 
+      await isolated.page.getByRole('button', { name: '编辑 E2E Bookmarklet' }).click();
+      const bookmarkletEditor = isolated.page.getByRole('dialog', {
+        name: '编辑书签',
+      });
+      await expect(
+        bookmarkletEditor.getByRole('textbox', { name: '网址' }),
+      ).toHaveValue('javascript:void(document.body.dataset.bookmarklet=1)');
+      await bookmarkletEditor
+        .getByRole('textbox', { name: '标题' })
+        .fill('E2E Bookmarklet Updated');
+      await bookmarkletEditor.getByRole('button', { name: '预览' }).click();
+      await isolated.page.getByRole('button', { name: '确认保存' }).click();
+      await expect(
+        isolated.page.getByText('E2E Bookmarklet Updated', { exact: true }),
+      ).toBeVisible();
+
       await isolated.page.getByRole('button', { name: '编辑 长网址书签' }).click();
       const editor = isolated.page.getByRole('dialog', { name: '编辑书签' });
       await expect(editor.getByRole('textbox', { name: '网址' })).toHaveValue(
         isolated.longUrl,
       );
+      await editor.getByRole('textbox', { name: '标题' }).fill('长网址书签已编辑');
       await editor.getByRole('button', { name: '预览' }).click();
       await isolated.page.getByRole('button', { name: '确认保存' }).click();
       await expect(isolated.page.getByRole('status', { name: '操作提示' })).toBeVisible();

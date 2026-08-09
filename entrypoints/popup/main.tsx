@@ -46,7 +46,19 @@ createRoot(root).render(
         try {
           const existingTabId = await findExistingManagerTab(url);
           if (existingTabId !== undefined) {
-            await browser.tabs.update(existingTabId, { active: true });
+            const existingTab = await browser.tabs.update(existingTabId, {
+              active: true,
+            });
+            if (existingTab?.windowId !== undefined) {
+              try {
+                await browser.windows.update(existingTab.windowId, {
+                  focused: true,
+                });
+              } catch {
+                // The tab is already active even if a window manager refuses
+                // the optional focus request.
+              }
+            }
             return;
           }
         } catch {

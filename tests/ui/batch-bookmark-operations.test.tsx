@@ -180,7 +180,11 @@ describe('batch bookmark operations', () => {
     expect(screen.getByText('删除后无法恢复')).toBeTruthy();
     await confirm('确认删除');
 
-    expect(repository.removeTree).toHaveBeenCalledWith('folder-a');
+    expect(vi.mocked(repository.remove).mock.calls.map(([id]) => id)).toEqual([
+      'inside-folder-a',
+      'folder-a',
+    ]);
+    expect(repository.removeTree).not.toHaveBeenCalled();
   });
 
 });

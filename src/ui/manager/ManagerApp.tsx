@@ -596,10 +596,21 @@ export function ManagerApp({
             title: input.title,
           });
         } else {
-          plan = operationService.planUpdate(records, editorState.record.id, {
-            title: input.title,
-            ...(editorState.record.isFolder ? {} : { url: input.url ?? '' }),
-          });
+          const changes: { title?: string; url?: string } = {};
+          if (input.title !== editorState.record.title) {
+            changes.title = input.title;
+          }
+          if (
+            !editorState.record.isFolder &&
+            (input.url ?? '') !== (editorState.record.url ?? '')
+          ) {
+            changes.url = input.url ?? '';
+          }
+          plan = operationService.planUpdate(
+            records,
+            editorState.record.id,
+            changes,
+          );
         }
         setEditorState(undefined);
         setConfirmPlan(plan);
@@ -742,8 +753,12 @@ export function ManagerApp({
       return [];
     }
     const blockedIds = new Set<string>();
+    const sourceParentIds = new Set<string>();
     for (const id of ids) {
       const source = operationModel.recordById.get(id);
+      if (source?.parentId) {
+        sourceParentIds.add(source.parentId);
+      }
       if (source?.isFolder) {
         blockedIds.add(source.id);
         for (const descendantId of operationModel.getDescendantIds(source.id)) {
@@ -751,12 +766,15 @@ export function ManagerApp({
         }
       }
     }
+    const onlySourceParentId =
+      sourceParentIds.size === 1 ? [...sourceParentIds][0] : undefined;
     return operationModel.searchableRecords.filter(
       (record) =>
         record.isFolder &&
         !record.isRoot &&
         !record.isUnmodifiable &&
-        !blockedIds.has(record.id),
+        !blockedIds.has(record.id) &&
+        record.id !== onlySourceParentId,
     );
   }, [moveModel, moveRecord, moveSourceIds]);
 

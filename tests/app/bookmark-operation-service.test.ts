@@ -208,6 +208,26 @@ describe('createBookmarkOperationService', () => {
     });
   });
 
+  it('does not call the native move API for bookmarks already in the target folder', async () => {
+    const repository = repositoryStub();
+    const service = createBookmarkOperationService({ repository });
+    const plan = service.planMove(flattenBookmarkTree(tree()), ['a'], {
+      parentId: 'bar',
+    });
+
+    await expect(service.execute(plan)).resolves.toEqual({
+      kind: 'move',
+      results: [
+        {
+          id: 'a',
+          status: 'success',
+          message: '已在目标文件夹中',
+        },
+      ],
+    });
+    expect(repository.move).not.toHaveBeenCalled();
+  });
+
   it('permanently deletes selected native bookmarks after fingerprint validation', async () => {
     const repository = repositoryStub();
     const service = createBookmarkOperationService({
@@ -231,7 +251,13 @@ describe('createBookmarkOperationService', () => {
 
     const folderPlan = service.planDelete(flattenBookmarkTree(tree()), ['folder']);
     await service.execute(folderPlan);
-    expect(repository.removeTree).toHaveBeenCalledWith('folder');
+    expect(vi.mocked(repository.remove).mock.calls.map(([id]) => id)).toEqual([
+      'a',
+      'b',
+      'inside',
+      'folder',
+    ]);
+    expect(repository.removeTree).not.toHaveBeenCalled();
   });
 
   it('rechecks later deletes without treating its own sibling index shifts as conflicts', async () => {
@@ -275,8 +301,11 @@ describe('createBookmarkOperationService', () => {
     expect(plan.sources.map(({ id }) => id)).toEqual(['folder']);
     expect(plan.affectedCount).toBe(2);
     await service.execute(plan);
-    expect(repository.removeTree).toHaveBeenCalledWith('folder');
-    expect(repository.remove).not.toHaveBeenCalledWith('inside');
+    expect(vi.mocked(repository.remove).mock.calls.map(([id]) => id)).toEqual([
+      'inside',
+      'folder',
+    ]);
+    expect(repository.removeTree).not.toHaveBeenCalled();
   });
 
   it('blocks recursive deletion when the folder subtree changes after confirmation', async () => {
@@ -356,9 +385,63 @@ describe('createBookmarkOperationService', () => {
         },
       ],
     });
-    expect(repository.removeTree).toHaveBeenCalledTimes(1);
-    expect(repository.removeTree).toHaveBeenCalledWith('folder');
+    expect(vi.mocked(repository.remove).mock.calls.map(([id]) => id)).toEqual([
+      'inside',
+      'folder',
+    ]);
+    expect(repository.removeTree).not.toHaveBeenCalled();
     expect(getTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('never sweeps an external bookmark added after the final delete snapshot', async () => {
+    const nativeTree = tree();
+    const getTree = vi.fn<BookmarkRepository['getTree']>(async () => nativeTree);
+    const repository = repositoryStub(getTree);
+    let insertedExternalBookmark = false;
+    vi.mocked(repository.remove).mockImplementation(async (id) => {
+      const folder = nativeTree[0]?.children?.[0]?.children?.find(
+        (child) => child.id === 'folder',
+      );
+      if (!folder?.children) {
+        throw new Error('folder missing');
+      }
+      if (!insertedExternalBookmark) {
+        insertedExternalBookmark = true;
+        folder.children.push({
+          id: 'external-after-snapshot',
+          parentId: 'folder',
+          index: 1,
+          title: 'External bookmark',
+          url: 'https://external.example.test',
+        });
+      }
+      if (id === 'inside') {
+        folder.children = folder.children.filter((child) => child.id !== id);
+        return;
+      }
+      if (id === 'folder' && folder.children.length > 0) {
+        throw new Error('Folder is not empty');
+      }
+    });
+    const service = createBookmarkOperationService({ repository });
+    const plan = service.planDelete(flattenBookmarkTree(tree()), ['folder']);
+
+    await expect(service.execute(plan)).resolves.toEqual({
+      kind: 'delete',
+      results: [
+        {
+          id: 'folder',
+          status: 'failure',
+          message: '已删除 1 个确认项，后续删除未完成：Folder is not empty',
+        },
+      ],
+    });
+    expect(repository.removeTree).not.toHaveBeenCalled();
+    expect(
+      nativeTree[0]?.children?.[0]?.children
+        ?.find((child) => child.id === 'folder')
+        ?.children?.map(({ id }) => id),
+    ).toEqual(['external-after-snapshot']);
   });
 
   it('rechecks every batch item against the native tree before writing', async () => {

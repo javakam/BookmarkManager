@@ -34,6 +34,10 @@ export function BookmarkEditorDialog({
   const [url, setUrl] = useState(record?.url ?? '');
   const heading = dialogTitle(mode, record);
   const needsUrl = mode === 'create-bookmark' || (mode === 'edit' && !record?.isFolder);
+  const hasChanges =
+    mode !== 'edit' ||
+    title !== (record?.title ?? '') ||
+    (needsUrl && url !== (record?.url ?? ''));
 
   return (
     <div
@@ -87,7 +91,7 @@ export function BookmarkEditorDialog({
           <button className="ghost-button" onClick={onCancel} type="button">
             取消
           </button>
-          <button className="command-button" type="submit">
+          <button className="command-button" disabled={!hasChanges} type="submit">
             预览
           </button>
         </footer>

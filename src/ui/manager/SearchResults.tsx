@@ -26,6 +26,7 @@ import { useItemContextMenu } from './useItemContextMenu';
 const REASON_LABELS: Readonly<Record<SearchReason, string>> = {
   'title-exact': '标题完全匹配',
   'title-prefix': '标题开头匹配',
+  'title-contains': '标题包含关键词',
   domain: '域名匹配',
   pinyin: '拼音匹配',
   path: '文件夹路径匹配',

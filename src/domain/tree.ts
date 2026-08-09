@@ -4,16 +4,44 @@ export function flattenBookmarkTree(
   nodes: BrowserBookmarkNode[],
 ): BookmarkRecord[] {
   const records: BookmarkRecord[] = [];
+  const pending: Array<{
+    readonly node: BrowserBookmarkNode;
+    readonly fallbackIndex: number;
+    readonly path: string[];
+    readonly depth: number;
+    readonly ancestorIsUnmodifiable: boolean;
+    readonly ancestorIsBookmarkBar: boolean;
+    readonly parentIsSyntheticRoot: boolean;
+  }> = [];
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (node) {
+      pending.push({
+        node,
+        fallbackIndex: index,
+        path: [],
+        depth: 0,
+        ancestorIsUnmodifiable: false,
+        ancestorIsBookmarkBar: false,
+        parentIsSyntheticRoot: false,
+      });
+    }
+  }
 
-  function visit(
-    node: BrowserBookmarkNode,
-    fallbackIndex: number,
-    path: string[],
-    depth: number,
-    ancestorIsUnmodifiable: boolean,
-    ancestorIsBookmarkBar: boolean,
-    parentIsSyntheticRoot: boolean,
-  ): void {
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+    const {
+      node,
+      fallbackIndex,
+      path,
+      depth,
+      ancestorIsUnmodifiable,
+      ancestorIsBookmarkBar,
+      parentIsSyntheticRoot,
+    } = current;
     const folderType =
       node.folderType ??
       (parentIsSyntheticRoot && fallbackIndex === 0
@@ -48,22 +76,22 @@ export function flattenBookmarkTree(
     const childPath = isFolder ? [...path, node.title] : path;
     const isSyntheticRoot =
       node.parentId === undefined && isFolder && node.title.trim() === '';
-    node.children?.forEach((child, childIndex) => {
-      visit(
-        child,
-        childIndex,
-        childPath,
-        depth + 1,
-        isUnmodifiable,
-        isBookmarkBar,
-        isSyntheticRoot,
-      );
-    });
+    const children = node.children ?? [];
+    for (let childIndex = children.length - 1; childIndex >= 0; childIndex -= 1) {
+      const child = children[childIndex];
+      if (child) {
+        pending.push({
+          node: child,
+          fallbackIndex: childIndex,
+          path: childPath,
+          depth: depth + 1,
+          ancestorIsUnmodifiable: isUnmodifiable,
+          ancestorIsBookmarkBar: isBookmarkBar,
+          parentIsSyntheticRoot: isSyntheticRoot,
+        });
+      }
+    }
   }
-
-  nodes.forEach((node, index) => {
-    visit(node, index, [], 0, false, false, false);
-  });
 
   return records;
 }
