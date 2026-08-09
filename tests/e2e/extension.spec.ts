@@ -32,7 +32,7 @@ async function launchIsolatedExtension(): Promise<IsolatedExtension> {
   }
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
-  const folderTitle = `v1.0.4 E2E ${Date.now()}`;
+  const folderTitle = `v1.0.5 E2E ${Date.now()}`;
   const longUrl =
     'https://native.example.test/a/very/long/path/that/must/remain/visible?alpha=123456789&beta=中文参数#section-with-a-long-fragment';
   // Bookmark APIs are only exposed to extension contexts. Create test data in
@@ -131,7 +131,7 @@ test.describe('真实 Chromium 扩展回归', () => {
 
     try {
       await expect(
-        isolated.page.getByText('v1.0.4', { exact: true }),
+        isolated.page.getByText('v1.0.5', { exact: true }),
       ).toBeVisible();
       await expect(
         isolated.page.getByRole('button', { name: '折叠 书签栏' }),
@@ -226,15 +226,73 @@ test.describe('真实 Chromium 扩展回归', () => {
       }
 
       await isolated.page.getByRole('button', { name: '设置' }).click();
-      await isolated.page.getByRole('combobox', { name: '主题' }).selectOption('dark');
-      await expect(isolated.page.locator('.manager-app')).toHaveAttribute(
-        'data-theme',
-        'dark',
+      const themes = [
+        ['浅色', 'light'],
+        ['深色', 'dark'],
+        ['暖红深色', 'warm-red-dark'],
+        ['雾蓝', 'slate'],
+        ['暖红', 'warm-red'],
+      ] as const;
+      for (const [label, value] of themes) {
+        const option = isolated.page.getByRole('radio', {
+          name: label,
+          exact: true,
+        });
+        await option.click();
+        await expect(option).toBeChecked();
+        await expect(
+          isolated.page.locator('.theme-option--selected'),
+        ).toHaveCount(1);
+        await expect(isolated.page.locator('.manager-app')).toHaveAttribute(
+          'data-theme',
+          value,
+        );
+      }
+      await isolated.page.emulateMedia({ colorScheme: 'dark' });
+      await isolated.page
+        .getByRole('radio', { name: '跟随系统', exact: true })
+        .click();
+      await expect(isolated.page.locator('.manager-app')).toHaveCSS(
+        '--color-workspace',
+        '#202825',
       );
+      await isolated.page
+        .getByRole('radio', { name: '暖红', exact: true })
+        .click();
+      await expect(isolated.page.locator('.manager-app')).toHaveCSS(
+        '--color-workspace',
+        '#fff4f1',
+      );
+      for (const zoomFactor of [1, 1.25, 1.5]) {
+        await setPageZoom(isolated.page, zoomFactor);
+        for (const [width, height] of sizes) {
+          await isolated.page.setViewportSize({ width, height });
+          await expect(
+            isolated.page.getByRole('radio', { name: '暖红', exact: true }),
+          ).toBeVisible();
+          const overflow = await isolated.page.evaluate(() => {
+            const options = document.querySelector('.theme-options');
+            return {
+              documentWidth: document.documentElement.scrollWidth,
+              viewportWidth: document.documentElement.clientWidth,
+              optionsWidth: options?.scrollWidth ?? 0,
+              optionsClientWidth: options?.clientWidth ?? 0,
+            };
+          });
+          expect(overflow.documentWidth).toBeLessThanOrEqual(
+            overflow.viewportWidth,
+          );
+          expect(overflow.optionsWidth).toBeLessThanOrEqual(
+            overflow.optionsClientWidth,
+          );
+        }
+      }
+      await setPageZoom(isolated.page, 1);
+      expect((await isolated.page.screenshot()).byteLength).toBeGreaterThan(0);
       await isolated.page.reload();
       await expect(isolated.page.locator('.manager-app')).toHaveAttribute(
         'data-theme',
-        'dark',
+        'warm-red',
       );
     } finally {
       await removeIsolatedFolder(isolated.page, isolated.folderId);

@@ -11,6 +11,7 @@ import { BookmarkRow } from './BookmarkRow';
 import { useItemContextMenu } from './useItemContextMenu';
 
 const PAGE_SIZE = 100;
+const EMPTY_CHILDREN: readonly BookmarkRecord[] = [];
 
 interface BrowseViewProps {
   readonly model: BookmarkViewModel;
@@ -51,7 +52,7 @@ export function BrowseView({
   const activeFolder = model.recordById.get(activeFolderId);
   const children = activeFolder
     ? (model.childrenByParentId.get(activeFolderId) ?? [])
-    : [];
+    : EMPTY_CHILDREN;
 
   useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
@@ -72,6 +73,23 @@ export function BrowseView({
     setVisibleLimit((current) => Math.max(current, requiredLimit));
   }, [children, highlightedId]);
 
+  const contextDisplay = contextRecord ? getBookmarkDisplayInfo(contextRecord) : undefined;
+  const contextIsWritable = contextRecord
+    ? validateWritableRecord(contextRecord).valid
+    : false;
+  const context = useItemContextMenu(contextDisplay?.displayTitle ?? '', contextRecord ? [
+    ...(!contextRecord.isFolder && contextRecord.url ? [{ label: '打开', onSelect: () => onOpen(contextRecord) }] : []),
+    ...(contextRecord.isFolder ? [{ label: '打开文件夹', onSelect: () => onNavigate(contextRecord.id) }] : []),
+    ...(contextIsWritable && onEdit ? [{ label: '编辑', onSelect: () => onEdit(contextRecord) }] : []),
+    ...(contextIsWritable && onMove ? [{ label: '移动', onSelect: () => onMove(contextRecord) }] : []),
+    ...(contextIsWritable && onDelete ? [{ label: '删除', onSelect: () => onDelete(contextRecord), danger: true }] : []),
+  ] : []);
+
+  useEffect(() => {
+    context.close();
+    setContextRecord(undefined);
+  }, [activeFolderId, children, context.close, model]);
+
   if (!activeFolder) {
     return <div className="content-state">没有可浏览的书签目录</div>;
   }
@@ -86,14 +104,6 @@ export function BrowseView({
     selectedIds?.has(record.id),
   ).length;
   const canWriteInFolder = !activeFolder.isRoot && !activeFolder.isUnmodifiable;
-  const contextDisplay = contextRecord ? getBookmarkDisplayInfo(contextRecord) : undefined;
-  const context = useItemContextMenu(contextDisplay?.displayTitle ?? '', contextRecord ? [
-    ...(!contextRecord.isFolder && contextRecord.url ? [{ label: '打开', onSelect: () => onOpen(contextRecord) }] : []),
-    ...(contextRecord.isFolder ? [{ label: '打开文件夹', onSelect: () => onNavigate(contextRecord.id) }] : []),
-    ...(!contextRecord.isUnmodifiable && onEdit ? [{ label: '编辑', onSelect: () => onEdit(contextRecord) }] : []),
-    ...(!contextRecord.isUnmodifiable && onMove ? [{ label: '移动', onSelect: () => onMove(contextRecord) }] : []),
-    ...(!contextRecord.isUnmodifiable && onDelete ? [{ label: '删除', onSelect: () => onDelete(contextRecord), danger: true }] : []),
-  ] : []);
 
   return (
     <section aria-labelledby="browse-heading" className="browse-view">

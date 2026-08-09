@@ -40,6 +40,29 @@ interface CachedAnalysis {
   readonly state: Extract<OrganizeAnalysisState, { status: 'ready' | 'error' }>;
 }
 
+const ANALYSIS_CACHE_TTL_MS = 30_000;
+
+interface ScheduledAnalysisTask {
+  readonly cancel: () => void;
+}
+
+function scheduleAnalysisTask(callback: () => void): ScheduledAnalysisTask {
+  const idleApi = globalThis as typeof globalThis & {
+    requestIdleCallback?: (
+      callback: () => void,
+      options?: { readonly timeout: number },
+    ) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  if (idleApi.requestIdleCallback && idleApi.cancelIdleCallback) {
+    const handle = idleApi.requestIdleCallback(callback, { timeout: 250 });
+    return { cancel: () => idleApi.cancelIdleCallback?.(handle) };
+  }
+
+  const handle = globalThis.setTimeout(callback, 0);
+  return { cancel: () => globalThis.clearTimeout(handle) };
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
@@ -59,7 +82,15 @@ export function useOrganizeAnalysis(
 
   useEffect(() => {
     if (!enabled) {
-      return;
+      // Keep a short-lived cache for quick tab switches, then release large
+      // analysis graphs so leaving the organize view does not retain them.
+      setState((current) =>
+        current.status === 'idle' ? current : { status: 'idle' },
+      );
+      const evictionTimer = globalThis.setTimeout(() => {
+        cacheRef.current = undefined;
+      }, ANALYSIS_CACHE_TTL_MS);
+      return () => globalThis.clearTimeout(evictionTimer);
     }
 
     const cached = cacheRef.current;
@@ -68,40 +99,63 @@ export function useOrganizeAnalysis(
       return;
     }
 
+    cacheRef.current = undefined;
+
     setState({ status: 'analyzing' });
     const generation = ++generationRef.current;
-    const timer = setTimeout(() => {
-      try {
-        const duplicates = duplicateAnalyzer(records);
-        const analysis: OrganizeAnalysis = {
-          duplicates,
-          similar: similarityAnalyzer(records),
-          mirrorFolders: {
-            suggestions: duplicates.mirrorFolders,
-            truncated: duplicates.mirrorTruncated,
-          },
-        };
-        if (generationRef.current !== generation) {
-          return;
-        }
-        const nextState = { status: 'ready' as const, analysis };
-        cacheRef.current = { revision, state: nextState };
-        setState(nextState);
-      } catch (error) {
-        if (generationRef.current !== generation) {
-          return;
-        }
-        const nextState = {
-          status: 'error' as const,
-          error: getErrorMessage(error),
-        };
-        cacheRef.current = { revision, state: nextState };
-        setState(nextState);
+    let similarityTask: ScheduledAnalysisTask | undefined;
+
+    const publishError = (error: unknown) => {
+      if (generationRef.current !== generation) {
+        return;
       }
-    }, 0);
+      const nextState = {
+        status: 'error' as const,
+        error: getErrorMessage(error),
+      };
+      cacheRef.current = { revision, state: nextState };
+      setState(nextState);
+    };
+
+    const duplicateTask = scheduleAnalysisTask(() => {
+      let duplicates: DuplicateAnalysis;
+      try {
+        duplicates = duplicateAnalyzer(records);
+      } catch (error) {
+        publishError(error);
+        return;
+      }
+      if (generationRef.current !== generation) {
+        return;
+      }
+
+      // Let the browser paint after the duplicate pass before running the
+      // more allocation-heavy similarity pass.
+      similarityTask = scheduleAnalysisTask(() => {
+        try {
+          const analysis: OrganizeAnalysis = {
+            duplicates,
+            similar: similarityAnalyzer(records),
+            mirrorFolders: {
+              suggestions: duplicates.mirrorFolders,
+              truncated: duplicates.mirrorTruncated,
+            },
+          };
+          if (generationRef.current !== generation) {
+            return;
+          }
+          const nextState = { status: 'ready' as const, analysis };
+          cacheRef.current = { revision, state: nextState };
+          setState(nextState);
+        } catch (error) {
+          publishError(error);
+        }
+      });
+    });
 
     return () => {
-      clearTimeout(timer);
+      duplicateTask.cancel();
+      similarityTask?.cancel();
       if (generationRef.current === generation) {
         generationRef.current += 1;
       }

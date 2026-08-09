@@ -161,7 +161,7 @@ describe('single bookmark operations', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
 
     expect(await screen.findByText('将新建 1 个书签')).toBeTruthy();
-    await confirmOperation('确认新建');
+    await confirmOperation('确认新建书签');
 
     expect(repository.createBookmark).toHaveBeenCalledWith({
       parentId: 'bar',
@@ -179,7 +179,7 @@ describe('single bookmark operations', () => {
       target: { value: '资料' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
-    await confirmOperation('确认新建');
+    await confirmOperation('确认新建文件夹');
 
     expect(repository.createFolder).toHaveBeenCalledWith({
       parentId: 'bar',
@@ -205,6 +205,44 @@ describe('single bookmark operations', () => {
       title: '',
       url: 'https://changed.example.test',
     });
+  });
+
+  it('shows validation errors inside the editor dialog', async () => {
+    await renderReady();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '编辑 important.example.test' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: '编辑书签' });
+    fireEvent.change(within(dialog).getByLabelText('网址'), {
+      target: { value: 'javascript:alert(1)' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: '预览' }));
+
+    expect(within(dialog).getByRole('alert').textContent).toContain(
+      '不支持保存或打开可执行网址协议',
+    );
+  });
+
+  it('shows execution failures inside the confirmation dialog', async () => {
+    const repository = await renderReady();
+    vi.mocked(repository.getTree).mockRejectedValueOnce(
+      new Error('native read failed'),
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '编辑 important.example.test' }),
+    );
+    const editor = await screen.findByRole('dialog', { name: '编辑书签' });
+    fireEvent.click(within(editor).getByRole('button', { name: '预览' }));
+    const confirm = await screen.findByRole('dialog', {
+      name: '确认保存修改',
+    });
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认保存' }));
+
+    expect((await within(confirm).findByRole('alert')).textContent).toContain(
+      'native read failed',
+    );
   });
 
   it('keeps keyboard focus inside dialogs and restores the opener after cancel', async () => {

@@ -10,6 +10,7 @@ afterEach(cleanup);
 describe('SettingsView', () => {
   it('renders the focused settings and dispatches toggle and manual refresh actions', () => {
     const onShowFolderCountsChange = vi.fn();
+    const onThemeChange = vi.fn();
     const onRefresh = vi.fn();
     const lastUpdatedAt = new Date(2026, 6, 12, 10, 30, 5).getTime();
     const expectedTime = new Intl.DateTimeFormat('zh-CN', {
@@ -23,6 +24,7 @@ describe('SettingsView', () => {
         lastUpdatedAt={lastUpdatedAt}
         onRefresh={onRefresh}
         onShowFolderCountsChange={onShowFolderCountsChange}
+        onThemeChange={onThemeChange}
         settings={{ showFolderCounts: true, theme: 'system' }}
         settingsStatus="ready"
       />,
@@ -40,7 +42,16 @@ describe('SettingsView', () => {
       within(settings).queryByRole('checkbox', { name: '自动更新' }),
     ).toBeNull();
     expect(within(settings).getByText(expectedTime)).toBeTruthy();
-    expect((within(settings).getByRole('combobox', { name: '主题' }) as HTMLSelectElement).value).toBe('system');
+    const themeOptions = within(settings).getAllByRole('radio');
+    expect(themeOptions).toHaveLength(6);
+    expect(
+      (within(settings).getByRole('radio', {
+        name: '跟随系统',
+      }) as HTMLInputElement).checked,
+    ).toBe(true);
+
+    fireEvent.click(within(settings).getByRole('radio', { name: '暖红' }));
+    expect(onThemeChange).toHaveBeenCalledWith('warm-red');
 
     fireEvent.click(toggle);
     expect(onShowFolderCountsChange).toHaveBeenCalledWith(false);
@@ -72,6 +83,10 @@ describe('SettingsView', () => {
       (screen.getByRole('button', {
         name: '立即刷新书签',
       }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole('radio', { name: '暖红' }) as HTMLInputElement)
+        .disabled,
     ).toBe(true);
   });
 });

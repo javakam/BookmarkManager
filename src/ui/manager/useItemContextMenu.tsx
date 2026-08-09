@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -6,6 +7,22 @@ import {
   useState,
   type MouseEvent,
 } from 'react';
+
+interface ActiveMenu {
+  readonly id: string;
+  readonly close: () => void;
+}
+
+let activeMenu: ActiveMenu | undefined;
+
+function closeActiveMenu(exceptId?: string): void {
+  if (!activeMenu || activeMenu.id === exceptId) {
+    return;
+  }
+  const previous = activeMenu;
+  activeMenu = undefined;
+  previous.close();
+}
 
 export interface ItemMenuAction {
   readonly label: string;
@@ -22,24 +39,28 @@ export function useItemContextMenu(
   const menuRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | undefined>(undefined);
 
+  const closeMenu = useCallback(() => {
+    setPosition(undefined);
+    if (activeMenu?.id === menuId) {
+      activeMenu = undefined;
+    }
+  }, [menuId]);
+
   useEffect(() => {
-    const closeOtherMenu = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== menuId) {
-        setPosition(undefined);
+    return () => {
+      if (activeMenu?.id === menuId) {
+        activeMenu = undefined;
       }
     };
-    document.addEventListener('bookmark-context-menu-open', closeOtherMenu);
-    return () => document.removeEventListener('bookmark-context-menu-open', closeOtherMenu);
   }, [menuId]);
 
   useEffect(() => {
     if (!position) return;
     menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const close = () => setPosition(undefined);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        close();
+        closeMenu();
         queueMicrotask(() => openerRef.current?.focus());
         return;
       }
@@ -71,19 +92,19 @@ export function useItemContextMenu(
               : (currentIndex + 1) % buttons.length;
       buttons[nextIndex]?.focus();
     };
-    document.addEventListener('click', close);
+    document.addEventListener('click', closeMenu);
     document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('scroll', close, true);
-    window.addEventListener('scroll', close);
-    window.addEventListener('resize', close);
+    document.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('scroll', closeMenu);
+    window.addEventListener('resize', closeMenu);
     return () => {
-      document.removeEventListener('click', close);
+      document.removeEventListener('click', closeMenu);
       document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('scroll', close, true);
-      window.removeEventListener('scroll', close);
-      window.removeEventListener('resize', close);
+      document.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('scroll', closeMenu);
+      window.removeEventListener('resize', closeMenu);
     };
-  }, [position]);
+  }, [closeMenu, position]);
 
   useLayoutEffect(() => {
     if (!position || !menuRef.current) {
@@ -100,6 +121,7 @@ export function useItemContextMenu(
   }, [actions.length, position]);
 
   return {
+    close: closeMenu,
     onContextMenu(event: MouseEvent<HTMLElement>) {
       event.preventDefault();
       const eventTarget = event.target;
@@ -113,9 +135,8 @@ export function useItemContextMenu(
             ) ??
             undefined)
           : undefined;
-      document.dispatchEvent(
-        new CustomEvent('bookmark-context-menu-open', { detail: menuId }),
-      );
+      closeActiveMenu(menuId);
+      activeMenu = { id: menuId, close: closeMenu };
       const menuWidth = 220;
       const menuHeight = Math.max(48, actions.length * 40 + 12);
       setPosition({
@@ -132,7 +153,7 @@ export function useItemContextMenu(
         style={{ left: position.x, top: position.y }}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-            setPosition(undefined);
+            closeMenu();
           }
         }}
       >
@@ -142,7 +163,7 @@ export function useItemContextMenu(
             key={action.label}
             onClick={() => {
               const opener = openerRef.current;
-              setPosition(undefined);
+              closeMenu();
               opener?.focus();
               action.onSelect();
             }}

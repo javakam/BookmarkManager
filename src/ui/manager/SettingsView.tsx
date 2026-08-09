@@ -1,10 +1,12 @@
 import { CheckCircle2, RefreshCw } from 'lucide-react';
+import type { CSSProperties } from 'react';
 
 import type { ManagerSettingsState } from '../../app/use-manager-settings';
 import type {
   ManagerSettings,
   ManagerTheme,
 } from '../../platform/manager-settings-repository';
+import { MANAGER_THEME_OPTIONS } from './theme-options';
 
 interface SettingsViewProps {
   readonly settings: ManagerSettings;
@@ -65,20 +67,42 @@ export function SettingsView({
         </label>
       </div>
 
-      <div className="settings-preference settings-preference--select">
-        <label className="field settings-theme-field">
-          <span>主题</span>
-          <select
-            aria-label="主题"
-            disabled={settingsStatus === 'loading' || !onThemeChange}
-            onChange={(event) => onThemeChange?.(event.currentTarget.value as ManagerTheme)}
-            value={settings.theme ?? 'system'}
-          >
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
-        </label>
+      <div className="settings-preference settings-preference--theme">
+        <fieldset className="settings-theme-field">
+          <legend>主题</legend>
+          <div aria-label="主题" className="theme-options">
+            {MANAGER_THEME_OPTIONS.map((option) => {
+              const selected = (settings.theme ?? 'system') === option.value;
+              const previewStyle = {
+                '--theme-preview-workspace': option.preview.workspace,
+                '--theme-preview-surface': option.preview.surface,
+                '--theme-preview-primary': option.preview.primary,
+              } as CSSProperties;
+              return (
+                <label
+                  className={`theme-option${selected ? ' theme-option--selected' : ''}`}
+                  key={option.value}
+                  style={previewStyle}
+                >
+                  <input
+                    aria-label={option.label}
+                    checked={selected}
+                    disabled={settingsStatus === 'loading' || !onThemeChange}
+                    name="manager-theme"
+                    onChange={() => onThemeChange?.(option.value)}
+                    type="radio"
+                    value={option.value}
+                  />
+                  <span aria-hidden="true" className="theme-option__preview">
+                    <span className="theme-option__preview-surface" />
+                    <span className="theme-option__preview-primary" />
+                  </span>
+                  <span className="theme-option__label">{option.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
       </div>
 
       <dl className="settings-details">

@@ -1,5 +1,14 @@
-import { ExternalLink, Folder, LocateFixed, Lock, MoveRight, Pencil, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import {
+  ExternalLink,
+  Folder,
+  LocateFixed,
+  LoaderCircle,
+  Lock,
+  MoveRight,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import {
   getBookmarkDisplayInfo,
@@ -26,6 +35,7 @@ const REASON_LABELS: Readonly<Record<SearchReason, string>> = {
 
 interface SearchResultsProps {
   readonly results: readonly SearchResult[];
+  readonly isPending?: boolean;
   readonly onEnterFolder: (folderId: string) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
   readonly onOpen: (record: BookmarkRecord) => void;
@@ -40,6 +50,7 @@ function resultPath(record: BookmarkRecord): string {
 
 export function SearchResults({
   results,
+  isPending = false,
   onEnterFolder,
   onLocate,
   onOpen,
@@ -59,15 +70,29 @@ export function SearchResults({
     ...(onMove && contextIsWritable ? [{ label: '移动', onSelect: () => onMove(contextNode) }] : []),
     ...(onDelete && contextIsWritable ? [{ label: '删除', onSelect: () => onDelete(contextNode), danger: true }] : []),
   ] : []);
+
+  useEffect(() => {
+    context.close();
+    setContextNode(undefined);
+  }, [context.close, isPending, results]);
   return (
-    <section aria-labelledby="search-results-heading" className="search-results">
+    <section
+      aria-busy={isPending || undefined}
+      aria-labelledby="search-results-heading"
+      className="search-results"
+    >
       <div className="content-heading">
         <div>
           <h1 id="search-results-heading">搜索结果</h1>
           <span>{results.length} 项</span>
         </div>
       </div>
-      {results.length === 0 ? (
+      {isPending ? (
+        <div className="content-state" role="status">
+          <LoaderCircle aria-hidden="true" className="spin" size={20} />
+          <span>正在搜索...</span>
+        </div>
+      ) : results.length === 0 ? (
         <div className="content-state">没有找到匹配的书签</div>
       ) : (
         <ul aria-label="搜索结果" className="search-result-list">
@@ -93,12 +118,13 @@ export function SearchResults({
                       aria-label={`进入文件夹 ${display.displayTitle}`}
                       className="text-action"
                       onClick={() => onEnterFolder(node.id)}
+                      title={display.displayTitle}
                       type="button"
                     >
                       {display.displayTitle}
                     </button>
                   ) : (
-                    <span className="bookmark-row__title-text">
+                    <span className="bookmark-row__title-text" title={display.displayTitle}>
                       {display.displayTitle}
                     </span>
                   )}

@@ -62,7 +62,8 @@ interface ScoredCandidate {
 const MAX_BLOCK_SIZE_FOR_ALL_PAIRS = 64;
 const LARGE_BLOCK_NEIGHBORS = 8;
 export const SIMILARITY_TOP_K = 8;
-export const SIMILARITY_MAX_PAIRS = 5_000;
+export const SIMILARITY_MAX_RESULTS = 2_000;
+export const SIMILARITY_MAX_PAIRS = SIMILARITY_MAX_RESULTS;
 
 function comparePrepared(
   left: PreparedBookmark,
@@ -375,6 +376,7 @@ function bookmarkRecords(
 function titleConflictAnalysis(records: readonly BookmarkRecord[]): {
   readonly groups: TitleConflictGroup[];
   readonly memberIds: ReadonlySet<string>;
+  readonly truncated: boolean;
 } {
   const recordsByTitle = new Map<string, BookmarkRecord[]>();
   for (const record of records) {
@@ -392,6 +394,7 @@ function titleConflictAnalysis(records: readonly BookmarkRecord[]): {
 
   const memberIds = new Set<string>();
   const groups: TitleConflictGroup[] = [];
+  let truncated = false;
   for (const [title, recordsWithTitle] of recordsByTitle) {
     if (
       recordsWithTitle.length < 2 ||
@@ -400,6 +403,10 @@ function titleConflictAnalysis(records: readonly BookmarkRecord[]): {
       continue;
     }
     recordsWithTitle.forEach(({ id }) => memberIds.add(id));
+    if (groups.length >= SIMILARITY_MAX_RESULTS) {
+      truncated = true;
+      continue;
+    }
     const members = Object.freeze(
       [...recordsWithTitle]
         .sort((left, right) => left.id.localeCompare(right.id))
@@ -423,7 +430,7 @@ function titleConflictAnalysis(records: readonly BookmarkRecord[]): {
   }
 
   groups.sort((left, right) => left.id.localeCompare(right.id));
-  return { groups, memberIds };
+  return { groups, memberIds, truncated };
 }
 
 function createPair(
@@ -512,6 +519,10 @@ export function analyzeSimilarBookmarks(
 ): SimilarityAnalysis {
   const bookmarks = bookmarkRecords(records);
   const conflicts = titleConflictAnalysis(bookmarks);
+  const availablePairSlots = Math.max(
+    0,
+    SIMILARITY_MAX_RESULTS - conflicts.groups.length,
+  );
   const candidateAnalysis = candidatePairs(
     bookmarks.filter(({ id }) => !conflicts.memberIds.has(id)),
   );
@@ -521,15 +532,18 @@ export function analyzeSimilarBookmarks(
     .sort(
       (left, right) => right.score - left.score || left.id.localeCompare(right.id),
     );
-  const truncatedByGlobalLimit = rankedPairs.length > SIMILARITY_MAX_PAIRS;
+  const truncatedByGlobalLimit = rankedPairs.length > availablePairSlots;
   const pairs = rankedPairs
-    .slice(0, SIMILARITY_MAX_PAIRS)
+    .slice(0, availablePairSlots)
     .sort((left, right) => left.id.localeCompare(right.id));
 
   return Object.freeze({
     titleConflictGroups: Object.freeze(conflicts.groups),
     pairs: Object.freeze(pairs),
     candidateComparisons: candidateAnalysis.candidates.length,
-    truncated: candidateAnalysis.truncated || truncatedByGlobalLimit,
+    truncated:
+      conflicts.truncated ||
+      candidateAnalysis.truncated ||
+      truncatedByGlobalLimit,
   });
 }

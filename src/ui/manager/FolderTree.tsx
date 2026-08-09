@@ -7,7 +7,7 @@ import {
   Lock,
   Settings,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { BookmarkViewModel } from '../../app/bookmark-view-model';
 import type { BookmarkRecord } from '../../domain/bookmarks';
@@ -15,6 +15,16 @@ import type { FolderDropPosition } from '../../domain/folder-reorder';
 import { useItemContextMenu } from './useItemContextMenu';
 
 export type ManagerView = 'browse' | 'organize' | 'settings';
+
+interface FolderDragState {
+  readonly sourceId: string;
+  readonly parentId?: string;
+}
+
+interface FolderDropTarget {
+  readonly folderId: string;
+  readonly position: FolderDropPosition;
+}
 
 interface FolderTreeProps {
   readonly model: BookmarkViewModel;
@@ -52,6 +62,10 @@ type FolderTreeNodeProps = Pick<
 > & {
   readonly folder: BookmarkRecord;
   readonly depth: number;
+  readonly draggedFolder?: FolderDragState;
+  readonly dropTarget?: FolderDropTarget;
+  readonly onDraggedFolderChange: (next?: FolderDragState) => void;
+  readonly onDropTargetChange: (next?: FolderDropTarget) => void;
 };
 
 function FolderTreeNode({
@@ -68,8 +82,11 @@ function FolderTreeNode({
   onMove,
   onDelete,
   onInvalidDrop,
+  draggedFolder,
+  dropTarget,
+  onDraggedFolderChange,
+  onDropTargetChange,
 }: FolderTreeNodeProps) {
-  const [dropPosition, setDropPosition] = useState<FolderDropPosition>();
   const childFolders = (model.childrenByParentId.get(folder.id) ?? []).filter(
     (record) => record.isFolder,
   );
@@ -87,7 +104,10 @@ function FolderTreeNode({
     !folder.isUnmodifiable &&
     folder.parentId !== undefined &&
     onReorder !== undefined;
-  const canManage = folder.folderType === 'unknown' && !folder.isUnmodifiable;
+  const canManage =
+    !folder.isRoot && folder.folderType === 'unknown' && !folder.isUnmodifiable;
+  const dropPosition =
+    dropTarget?.folderId === folder.id ? dropTarget.position : undefined;
   const context = useItemContextMenu(label, [
     { label: '打开', onSelect: () => onSelect(folder.id) },
     ...(canManage && onEdit ? [{ label: '编辑', onSelect: () => onEdit(folder) }] : []),
@@ -95,15 +115,21 @@ function FolderTreeNode({
     ...(canManage && onDelete ? [{ label: '删除', onSelect: () => onDelete(folder), danger: true }] : []),
   ]);
 
+  useEffect(() => {
+    context.close();
+  }, [context.close, folder]);
+
   const startDrag = (event: React.DragEvent<HTMLElement>) => {
     if (!canReorder) { event.preventDefault(); return; }
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-bookmark-folder', JSON.stringify({ sourceId: folder.id, parentId: folder.parentId }));
+    onDraggedFolderChange({ sourceId: folder.id, parentId: folder.parentId });
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    setDropPosition(undefined);
+    onDropTargetChange(undefined);
+    onDraggedFolderChange(undefined);
     try {
       const payload = JSON.parse(
         event.dataTransfer.getData('application/x-bookmark-folder'),
@@ -138,14 +164,33 @@ function FolderTreeNode({
         }${dropPosition ? ` folder-tree__row--drop-${dropPosition}` : ''}`}
         draggable={canReorder}
         onContextMenu={context.onContextMenu}
-        onDragLeave={() => setDropPosition(undefined)}
-        onDragEnd={() => setDropPosition(undefined)}
+        onDragLeave={() => {
+          if (dropTarget?.folderId === folder.id) {
+            onDropTargetChange(undefined);
+          }
+        }}
+        onDragEnd={() => {
+          onDropTargetChange(undefined);
+          onDraggedFolderChange(undefined);
+        }}
         onDragStart={startDrag}
         onDragOver={(event) => {
-          if (canReorder) {
-            event.preventDefault();
+          event.preventDefault();
+          if (
+            canReorder &&
+            draggedFolder?.sourceId !== folder.id &&
+            draggedFolder?.parentId === folder.parentId
+          ) {
             const bounds = event.currentTarget.getBoundingClientRect();
-            setDropPosition(bounds.height > 0 && event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after');
+            onDropTargetChange({
+              folderId: folder.id,
+              position:
+                bounds.height > 0 && event.clientY < bounds.top + bounds.height / 2
+                  ? 'before'
+                  : 'after',
+            });
+          } else if (dropTarget?.folderId === folder.id) {
+            onDropTargetChange(undefined);
           }
         }}
         onDrop={handleDrop}
@@ -221,6 +266,10 @@ function FolderTreeNode({
               folder={child}
               key={child.id}
               model={model}
+              draggedFolder={draggedFolder}
+              dropTarget={dropTarget}
+              onDraggedFolderChange={onDraggedFolderChange}
+              onDropTargetChange={onDropTargetChange}
               onReorder={onReorder}
               onEdit={onEdit}
               onMove={onMove}
@@ -238,8 +287,30 @@ function FolderTreeNode({
 }
 
 export function FolderTree(props: FolderTreeProps) {
+  const [draggedFolder, setDraggedFolder] = useState<FolderDragState>();
+  const [dropTarget, setDropTarget] = useState<FolderDropTarget>();
+
+  const updateDraggedFolder = useCallback((next?: FolderDragState) => {
+    setDraggedFolder((current) =>
+      current?.sourceId === next?.sourceId && current?.parentId === next?.parentId
+        ? current
+        : next,
+    );
+  }, []);
+  const updateDropTarget = useCallback((next?: FolderDropTarget) => {
+    setDropTarget((current) =>
+      current?.folderId === next?.folderId && current?.position === next?.position
+        ? current
+        : next,
+    );
+  }, []);
+  const clearDragState = useCallback(() => {
+    updateDraggedFolder(undefined);
+    updateDropTarget(undefined);
+  }, [updateDraggedFolder, updateDropTarget]);
+
   return (
-    <aside className="app-sidebar">
+    <aside className="app-sidebar" onDragEndCapture={clearDragState}>
       <nav aria-label="主导航" className="sidebar-nav">
         <button
           aria-current={props.view === 'browse' ? 'page' : undefined}
@@ -280,6 +351,10 @@ export function FolderTree(props: FolderTreeProps) {
                 depth={0}
                 folder={folder}
                 key={folder.id}
+                draggedFolder={draggedFolder}
+                dropTarget={dropTarget}
+                onDraggedFolderChange={updateDraggedFolder}
+                onDropTargetChange={updateDropTarget}
               />
             ))}
           </ul>

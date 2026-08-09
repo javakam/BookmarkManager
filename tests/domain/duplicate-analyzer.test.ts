@@ -98,6 +98,32 @@ function identicalSiblingMirrorRecords(folderCount: number): BookmarkRecord[] {
   return records;
 }
 
+function independentIdenticalMirrorGroupRecords(
+  groupCount: number,
+): BookmarkRecord[] {
+  const records: BookmarkRecord[] = [];
+
+  for (let groupIndex = 0; groupIndex < groupCount; groupIndex += 1) {
+    const groupId = groupIndex.toString().padStart(4, '0');
+    const folderIds = [
+      `identical-${groupId}-a`,
+      `identical-${groupId}-b`,
+      `identical-${groupId}-c`,
+    ];
+    folderIds.forEach((folderId) => records.push(folder(folderId)));
+    for (let urlIndex = 0; urlIndex < 5; urlIndex += 1) {
+      const url = `https://identical-group.example.test/${groupId}/${urlIndex}`;
+      folderIds.forEach((folderId) => {
+        records.push(
+          bookmark(`${folderId}-leaf-${urlIndex}`, url, folderId),
+        );
+      });
+    }
+  }
+
+  return records;
+}
+
 function unrelatedIdenticalPairRecords(pairCount: number): BookmarkRecord[] {
   const records: BookmarkRecord[] = [];
 
@@ -147,6 +173,31 @@ function denseNonIdenticalMirrorRecords(): BookmarkRecord[] {
     }
   }
 
+  return records;
+}
+
+function commonUrlMirrorStressRecords(folderCount: number): BookmarkRecord[] {
+  const records: BookmarkRecord[] = [folder('stress-root')];
+  for (let folderIndex = 0; folderIndex < folderCount; folderIndex += 1) {
+    const folderId = `stress-${folderIndex.toString().padStart(4, '0')}`;
+    records.push(folder(folderId, 'stress-root'));
+    for (let urlIndex = 0; urlIndex < 5; urlIndex += 1) {
+      records.push(
+        bookmark(
+          `${folderId}-shared-${urlIndex}`,
+          `https://stress-common.example.test/${urlIndex}`,
+          folderId,
+        ),
+      );
+    }
+    records.push(
+      bookmark(
+        `${folderId}-unique`,
+        `https://stress-unique.example.test/${folderIndex}`,
+        folderId,
+      ),
+    );
+  }
   return records;
 }
 
@@ -468,6 +519,26 @@ describe('mirror folder analysis', () => {
   );
 
   it(
+    'applies the global limit to independent identical-folder suggestions',
+    () => {
+      const analysis = analyzeDuplicates(
+        independentIdenticalMirrorGroupRecords(
+          duplicateAnalyzer.MIRROR_MAX_SUGGESTIONS + 1,
+        ),
+      );
+
+      expect(analysis.mirrorFolders).toHaveLength(
+        duplicateAnalyzer.MIRROR_MAX_SUGGESTIONS,
+      );
+      expect(analysis.mirrorFolders.every(({ folders }) => folders.length === 3)).toBe(
+        true,
+      );
+      expect(analysis.mirrorTruncated).toBe(true);
+    },
+    30_000,
+  );
+
+  it(
     'rate-limits dense non-identical mirror pairs and reports truncation',
     () => {
       const analysis = analyzeDuplicates(denseNonIdenticalMirrorRecords());
@@ -481,7 +552,7 @@ describe('mirror folder analysis', () => {
       expect(
         [...suggestionsPerFolder.values()].every((count) => count <= 8),
       ).toBe(true);
-      expect(analysis.mirrorFolders.length).toBeLessThanOrEqual(2_000);
+      expect(analysis.mirrorFolders.length).toBeLessThanOrEqual(500);
       expect(analysis.mirrorCandidatePairs).toBe(2_520);
       expect(analysis.mirrorTruncated).toBe(true);
     },
@@ -491,7 +562,8 @@ describe('mirror folder analysis', () => {
   it('exports the mirror suggestion limits', () => {
     expect(duplicateAnalyzer).toMatchObject({
       MIRROR_TOP_K: 8,
-      MIRROR_MAX_SUGGESTIONS: 2_000,
+      MIRROR_MAX_SUGGESTIONS: 500,
+      MIRROR_MAX_PAIR_COMPARISONS: 500_000,
     });
   });
 
@@ -651,6 +723,17 @@ describe('mirror folder analysis', () => {
     expect(records).toHaveLength(5_000);
     expect(analysis.mirrorFolders).toEqual([]);
     expect(analysis.mirrorCandidatePairs).toBe(0);
+  });
+
+  it('bounds pair comparisons for high-frequency shared URLs', () => {
+    const analysis = analyzeDuplicates(commonUrlMirrorStressRecords(500));
+
+    expect(analysis.mirrorSharedUpdates).toBeLessThanOrEqual(
+      duplicateAnalyzer.MIRROR_MAX_PAIR_COMPARISONS,
+    );
+    expect(analysis.mirrorSharedUpdates).toBeGreaterThan(0);
+    expect(analysis.mirrorCandidatePairs).toBe(0);
+    expect(analysis.mirrorTruncated).toBe(true);
   });
 
   it('does not index sub-five URL sets along a 750-level folder chain', () => {

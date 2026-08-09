@@ -276,6 +276,39 @@ describe('useBookmarks', () => {
       expect(getTree).toHaveBeenCalledTimes(2);
     });
 
+    it('keeps a forced refresh pending until its trailing read finishes', async () => {
+      const firstRead = deferred<BrowserBookmarkNode[]>();
+      const forcedRead = deferred<BrowserBookmarkNode[]>();
+      const getTree = vi
+        .fn<BookmarkRepository['getTree']>()
+        .mockReturnValueOnce(firstRead.promise)
+        .mockReturnValueOnce(forcedRead.promise);
+      const repository = repositoryStub(getTree);
+      const { result } = renderHook(() => useBookmarks(repository));
+
+      let refreshSettled = false;
+      let refreshPromise!: Promise<void>;
+      act(() => {
+        refreshPromise = result.current.refresh().then(() => {
+          refreshSettled = true;
+        });
+      });
+
+      await act(async () => firstRead.resolve(tree('首次读取')));
+      expect(getTree).toHaveBeenCalledTimes(2);
+      expect(refreshSettled).toBe(false);
+      expect(result.current.status).toBe('loading');
+
+      await act(async () => forcedRead.resolve(tree('强制尾随读取')));
+      await refreshPromise;
+
+      expect(refreshSettled).toBe(true);
+      expect(result.current.status).toBe('ready');
+      expect(result.current.records.find(({ id }) => id === 'bar')?.title).toBe(
+        '强制尾随读取',
+      );
+    });
+
     it('discards an in-flight import snapshot and refreshes once after import end', async () => {
       const initialRead = deferred<BrowserBookmarkNode[]>();
       const importedRead = deferred<BrowserBookmarkNode[]>();

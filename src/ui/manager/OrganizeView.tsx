@@ -1,5 +1,5 @@
 import { ExternalLink, Folder, LocateFixed, MoveRight, Pencil, Trash2 } from 'lucide-react';
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 
 import type { OrganizeAnalysis } from '../../app/use-organize-analysis';
 import { getBookmarkDisplayInfo } from '../../app/bookmark-view-model';
@@ -80,8 +80,6 @@ export interface OrganizeViewProps {
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
   readonly onDelete?: (record: BookmarkRecord) => void;
-  readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
-  readonly onDeleteSelection?: (records: readonly BookmarkRecord[]) => void;
   readonly onTabChange?: (tab: OrganizeTab) => void;
 }
 
@@ -249,10 +247,6 @@ function DuplicateResult({
   group,
   onOpen,
   onLocate,
-  selectedIds,
-  onSelectionChange,
-  onMoveSelection,
-  onDeleteSelection,
   onEdit,
   onMove,
   onDelete,
@@ -260,10 +254,6 @@ function DuplicateResult({
   readonly group: DuplicateGroup;
   readonly onOpen: (record: BookmarkRecord) => void;
   readonly onLocate: (record: BookmarkRecord) => void;
-  readonly selectedIds: ReadonlySet<string>;
-  readonly onSelectionChange: (record: BookmarkRecord, selected: boolean) => void;
-  readonly onMoveSelection?: (records: readonly BookmarkRecord[]) => void;
-  readonly onDeleteSelection?: (records: readonly BookmarkRecord[]) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
   readonly onDelete?: (record: BookmarkRecord) => void;
@@ -404,8 +394,6 @@ export function OrganizeView({
   onOpen,
   onLocateBookmark,
   onLocateFolder,
-  onMoveSelection,
-  onDeleteSelection,
   onTabChange,
   onEdit,
   onMove,
@@ -419,23 +407,6 @@ export function OrganizeView({
     similar: PAGE_SIZE,
     mirrors: PAGE_SIZE,
   });
-  const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  useEffect(() => {
-    setSelectedDuplicateIds(new Set());
-  }, [analysis]);
-  const changeDuplicateSelection = (record: BookmarkRecord, selected: boolean) => {
-    setSelectedDuplicateIds((current) => {
-      const next = new Set(current);
-      if (selected) {
-        next.add(record.id);
-      } else {
-        next.delete(record.id);
-      }
-      return next;
-    });
-  };
   const similarGroups: SimilarityGroup[] = [
     ...analysis.similar.titleConflictGroups,
     ...analysis.similar.pairs,
@@ -514,14 +485,10 @@ export function OrganizeView({
                     group={group}
                     key={group.id}
                     onLocate={onLocateBookmark}
-                    onMoveSelection={onMoveSelection}
                     onOpen={onOpen}
-                    onDeleteSelection={onDeleteSelection}
                     onEdit={onEdit}
                     onMove={onMove}
                     onDelete={onDelete}
-                    onSelectionChange={changeDuplicateSelection}
-                    selectedIds={selectedDuplicateIds}
                   />
                 ))}
               </ul>

@@ -4,6 +4,7 @@ import { trapDialogFocus } from './dialog-focus';
 interface ConfirmOperationDialogProps {
   readonly plan: BookmarkOperationPlan;
   readonly disabled?: boolean;
+  readonly error?: string;
   readonly onCancel: () => void;
   readonly onConfirm: () => void;
 }
@@ -34,9 +35,9 @@ function operationCopy(plan: BookmarkOperationPlan): {
 } {
   switch (plan.kind) {
     case 'create-bookmark':
-      return { title: '确认新建书签', confirmLabel: '确认新建' };
+      return { title: '确认新建书签', confirmLabel: '确认新建书签' };
     case 'create-folder':
-      return { title: '确认新建文件夹', confirmLabel: '确认新建' };
+      return { title: '确认新建文件夹', confirmLabel: '确认新建文件夹' };
     case 'update':
       return { title: '确认保存修改', confirmLabel: '确认保存' };
     case 'move':
@@ -51,6 +52,7 @@ function operationCopy(plan: BookmarkOperationPlan): {
 export function ConfirmOperationDialog({
   plan,
   disabled = false,
+  error,
   onCancel,
   onConfirm,
 }: ConfirmOperationDialogProps) {
@@ -72,6 +74,11 @@ export function ConfirmOperationDialog({
         <p className="operation-summary">{operationSummary(plan)}</p>
         {isDestructive && (
           <p className="operation-note">删除后无法恢复</p>
+        )}
+        {error && (
+          <p className="dialog-error" role="alert">
+            {error}
+          </p>
         )}
         <footer className="dialog-actions">
           <button autoFocus className="ghost-button" disabled={disabled} onClick={onCancel} type="button">

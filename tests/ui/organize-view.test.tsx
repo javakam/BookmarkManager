@@ -245,14 +245,16 @@ function mirrorSuggestion(index: number): MirrorFolderSuggestion {
 
 function AnalysisStatus({
   analyzers,
+  enabled = true,
   records,
   revision,
 }: {
   readonly analyzers: OrganizeAnalyzers;
+  readonly enabled?: boolean;
   readonly records: readonly BookmarkRecord[];
   readonly revision: number;
 }) {
-  const state = useOrganizeAnalysis(records, revision, true, analyzers);
+  const state = useOrganizeAnalysis(records, revision, enabled, analyzers);
   return <span>{state.status}</span>;
 }
 
@@ -556,6 +558,49 @@ describe('organize analysis lifecycle', () => {
 
       await act(async () => vi.runOnlyPendingTimers());
       expect(duplicateAnalyzer).toHaveBeenCalledTimes(1);
+      expect(similarityAnalyzer).not.toHaveBeenCalled();
+
+      await act(async () => vi.runOnlyPendingTimers());
+      expect(similarityAnalyzer).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('ready')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels unfinished work and releases the cached result after leaving organize', async () => {
+    vi.useFakeTimers();
+    try {
+      const duplicateAnalyzer = vi.fn(() => emptyDuplicates);
+      const similarityAnalyzer = vi.fn(() => emptySimilar);
+      const analyzers = { duplicateAnalyzer, similarityAnalyzer };
+      const records = [bookmark('cache-release')];
+      const { rerender } = render(
+        <AnalysisStatus analyzers={analyzers} records={records} revision={1} />,
+      );
+
+      await act(async () => vi.runOnlyPendingTimers());
+      expect(duplicateAnalyzer).toHaveBeenCalledTimes(1);
+      rerender(
+        <AnalysisStatus
+          analyzers={analyzers}
+          enabled={false}
+          records={records}
+          revision={1}
+        />,
+      );
+      await act(async () => vi.runOnlyPendingTimers());
+      expect(similarityAnalyzer).not.toHaveBeenCalled();
+      expect(screen.getByText('idle')).toBeTruthy();
+
+      await act(async () => vi.advanceTimersByTime(30_000));
+      rerender(
+        <AnalysisStatus analyzers={analyzers} records={records} revision={1} />,
+      );
+      expect(screen.getByText('analyzing')).toBeTruthy();
+      await act(async () => vi.runOnlyPendingTimers());
+      await act(async () => vi.runOnlyPendingTimers());
+      expect(duplicateAnalyzer).toHaveBeenCalledTimes(2);
       expect(similarityAnalyzer).toHaveBeenCalledTimes(1);
       expect(screen.getByText('ready')).toBeTruthy();
     } finally {

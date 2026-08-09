@@ -6,7 +6,8 @@ import {
 } from './url-normalize';
 
 export const MIRROR_TOP_K = 8;
-export const MIRROR_MAX_SUGGESTIONS = 2_000;
+export const MIRROR_MAX_SUGGESTIONS = 500;
+export const MIRROR_MAX_PAIR_COMPARISONS = 500_000;
 
 export type DuplicateClassification =
   | 'exact'
@@ -513,6 +514,7 @@ function mirrorFolderSuggestions(
 
   const comparisonUnits: MirrorComparisonUnit[] = [];
   const identicalSuggestions: MirrorFolderSuggestion[] = [];
+  let identicalSuggestionsTruncated = false;
   for (const { urls, folderIds } of identicalFoldersBySignature.values()) {
     const signatureFolders = folderIds.map(
       (folderId) => foldersById.get(folderId) as BookmarkRecord,
@@ -520,17 +522,21 @@ function mirrorFolderSuggestions(
     const specificFolders = mostSpecificFolders(signatureFolders, intervals);
     if (specificFolders.length >= 3) {
       comparisonUnits.push(createMirrorComparisonUnit(specificFolders, urls));
-      identicalSuggestions.push(
-        createMirrorFolderSuggestion(
-          specificFolders,
-          urls,
-          [],
-          [],
-          urls.length,
-          urls.length,
-          1,
-        ),
-      );
+      if (identicalSuggestions.length < MIRROR_MAX_SUGGESTIONS) {
+        identicalSuggestions.push(
+          createMirrorFolderSuggestion(
+            specificFolders,
+            urls,
+            [],
+            [],
+            urls.length,
+            urls.length,
+            1,
+          ),
+        );
+      } else {
+        identicalSuggestionsTruncated = true;
+      }
     } else {
       specificFolders.forEach((folder) => {
         comparisonUnits.push(createMirrorComparisonUnit([folder], urls));
@@ -551,6 +557,11 @@ function mirrorFolderSuggestions(
     }
   });
 
+  const orderedUnitIndexesByUrl = [...unitIndexesByUrl.entries()].sort(
+    ([leftUrl, leftIndexes], [rightUrl, rightIndexes]) =>
+      leftIndexes.length - rightIndexes.length ||
+      leftUrl.localeCompare(rightUrl),
+  );
   const sharedCounts = new Map<
     string,
     {
@@ -560,8 +571,10 @@ function mirrorFolderSuggestions(
     }
   >();
   const unitPairHasAncestorRelation = new Map<string, boolean>();
+  let truncated = identicalSuggestionsTruncated;
+  let pairComparisons = 0;
   let sharedUpdates = 0;
-  for (const unitIndexes of unitIndexesByUrl.values()) {
+  pairComparisonLoop: for (const [, unitIndexes] of orderedUnitIndexesByUrl) {
     for (let leftIndex = 0; leftIndex < unitIndexes.length; leftIndex += 1) {
       const leftUnitIndex = unitIndexes[leftIndex];
       for (
@@ -569,6 +582,11 @@ function mirrorFolderSuggestions(
         rightIndex < unitIndexes.length;
         rightIndex += 1
       ) {
+        if (pairComparisons >= MIRROR_MAX_PAIR_COMPARISONS) {
+          truncated = true;
+          break pairComparisonLoop;
+        }
+        pairComparisons += 1;
         const rightUnitIndex = unitIndexes[rightIndex];
         const key = `${leftUnitIndex},${rightUnitIndex}`;
         let hasAncestorRelation = unitPairHasAncestorRelation.get(key);
@@ -635,9 +653,10 @@ function mirrorFolderSuggestions(
       left.id.localeCompare(right.id),
   );
 
-  const pairSuggestions: MirrorFolderSuggestion[] = [];
+  const suggestions: MirrorFolderSuggestion[] = identicalSuggestions.sort(
+    (left, right) => left.id.localeCompare(right.id),
+  );
   const suggestionsPerFolder = new Map<string, number>();
-  let truncated = false;
   for (const {
     leftUnit,
     rightUnit,
@@ -646,7 +665,7 @@ function mirrorFolderSuggestions(
     unionCount,
     jaccard,
   } of rankedPairCandidates) {
-    if (pairSuggestions.length >= MIRROR_MAX_SUGGESTIONS) {
+    if (suggestions.length >= MIRROR_MAX_SUGGESTIONS) {
       truncated = true;
       break;
     }
@@ -667,7 +686,7 @@ function mirrorFolderSuggestions(
     const rightOnly = [...rightUnit.urls]
       .filter((url) => !leftUnit.urls.has(url))
       .sort();
-    pairSuggestions.push(
+    suggestions.push(
       createMirrorFolderSuggestion(
         candidateFolders,
         shared,
@@ -684,12 +703,7 @@ function mirrorFolderSuggestions(
   }
 
   return {
-    suggestions: [
-      ...identicalSuggestions.sort((left, right) =>
-        left.id.localeCompare(right.id),
-      ),
-      ...pairSuggestions,
-    ],
+    suggestions,
     candidatePairs: candidates.length,
     indexedFolders,
     sharedUpdates,

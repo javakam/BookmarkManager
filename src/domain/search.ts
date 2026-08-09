@@ -138,11 +138,10 @@ export function createSearchEntry(
   };
 }
 
-export function matchSearchEntry(
+export function matchNormalizedSearchEntry(
   entry: SearchEntry,
-  query: string,
+  normalizedQuery: string,
 ): SearchMatch | undefined {
-  const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) {
     return undefined;
   }
@@ -188,6 +187,13 @@ export function matchSearchEntry(
     (left, right) => SEARCH_REASON_SCORE[right] - SEARCH_REASON_SCORE[left],
   );
   return { score: SEARCH_REASON_SCORE[reasons[0]], reasons };
+}
+
+export function matchSearchEntry(
+  entry: SearchEntry,
+  query: string,
+): SearchMatch | undefined {
+  return matchNormalizedSearchEntry(entry, normalizeSearchText(query));
 }
 
 function displayTitle(entry: SearchEntry): string {

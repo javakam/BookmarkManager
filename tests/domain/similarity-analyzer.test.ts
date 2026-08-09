@@ -4,6 +4,7 @@ import type { BookmarkRecord } from '../../src/domain/bookmarks';
 import {
   analyzeSimilarBookmarks,
   normalizeSimilarityTitle,
+  SIMILARITY_MAX_RESULTS,
 } from '../../src/domain/similarity-analyzer';
 
 function bookmark(
@@ -232,6 +233,32 @@ describe('similarity analyzer', () => {
     expect(Object.isFrozen(group.members[0].path)).toBe(true);
   });
 
+  it('applies the global result limit to independent title conflicts', () => {
+    const records = Array.from(
+      { length: SIMILARITY_MAX_RESULTS + 1 },
+      (_, groupIndex) => [
+        bookmark(
+          `conflict-${groupIndex}-a`,
+          `Independent Conflict ${groupIndex}`,
+          `https://conflict-a.example.test/${groupIndex}`,
+        ),
+        bookmark(
+          `conflict-${groupIndex}-b`,
+          `Independent Conflict ${groupIndex}`,
+          `https://conflict-b.example.test/${groupIndex}`,
+        ),
+      ],
+    ).flat();
+
+    const analysis = analyzeSimilarBookmarks(records);
+
+    expect(analysis.titleConflictGroups).toHaveLength(
+      SIMILARITY_MAX_RESULTS,
+    );
+    expect(analysis.pairs).toEqual([]);
+    expect(analysis.truncated).toBe(true);
+  });
+
   it('limits dense approximate results by score-ranked top-K and a global cap', () => {
     const records = Array.from({ length: 2_000 }, (_, index) => {
       const suffix = index.toString(36).padStart(3, '0');
@@ -255,7 +282,9 @@ describe('similarity analyzer', () => {
       (records.length * 8) / 2,
     );
     expect(Math.max(...pairCounts.values())).toBeLessThanOrEqual(8);
-    expect(analysis.pairs.length).toBeLessThanOrEqual(5_000);
+    expect(analysis.pairs.length).toBeLessThanOrEqual(
+      SIMILARITY_MAX_RESULTS,
+    );
     expect(analysis.truncated).toBe(true);
   });
 

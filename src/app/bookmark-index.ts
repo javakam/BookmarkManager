@@ -4,7 +4,7 @@ import type { BookmarkRecord } from '../domain/bookmarks';
 import {
   createSearchEntry,
   createSearchResult,
-  matchSearchEntry,
+  matchNormalizedSearchEntry,
   normalizeSearchText,
   SEARCH_REASON_SCORE,
   type SearchEntry,
@@ -103,7 +103,7 @@ export class BookmarkIndex {
       if (!isInScope(entry)) {
         continue;
       }
-      const match = matchSearchEntry(entry, normalizedQuery);
+      const match = matchNormalizedSearchEntry(entry, normalizedQuery);
       if (match) {
         matches.set(entry.node.id, {
           entry,

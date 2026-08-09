@@ -6,7 +6,26 @@ export interface ManagerSettings {
   readonly theme?: ManagerTheme;
 }
 
-export type ManagerTheme = 'system' | 'light' | 'dark';
+export type ManagerTheme =
+  | 'system'
+  | 'light'
+  | 'dark'
+  | 'warm-red'
+  | 'warm-red-dark'
+  | 'slate';
+
+const MANAGER_THEME_VALUES: ReadonlySet<string> = new Set([
+  'system',
+  'light',
+  'dark',
+  'warm-red',
+  'warm-red-dark',
+  'slate',
+]);
+
+export function isManagerTheme(value: unknown): value is ManagerTheme {
+  return typeof value === 'string' && MANAGER_THEME_VALUES.has(value);
+}
 
 export interface ManagerSettingsRepository {
   load(): Promise<ManagerSettings>;
@@ -40,10 +59,9 @@ function parseSettings(value: unknown): ManagerSettings {
       typeof stored.showFolderCounts === 'boolean'
         ? stored.showFolderCounts
         : DEFAULT_MANAGER_SETTINGS.showFolderCounts,
-    theme:
-      stored.theme === 'light' || stored.theme === 'dark' || stored.theme === 'system'
-        ? stored.theme
-        : DEFAULT_MANAGER_SETTINGS.theme,
+    theme: isManagerTheme(stored.theme)
+      ? stored.theme
+      : DEFAULT_MANAGER_SETTINGS.theme,
   };
 }
 

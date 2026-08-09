@@ -5,6 +5,7 @@ import type { BookmarkRecord } from '../src/domain/bookmarks';
 
 const RECORD_COUNT = 5_000;
 const MAX_P95_MS = 100;
+const MAX_RETAINED_HEAP_MB = 64;
 const MIN_SAMPLE_COUNT = 200;
 const WARMUP_ROUNDS = 5;
 const MEASURED_ROUNDS = 12;
@@ -99,6 +100,8 @@ function createQuerySamples(rounds: number, seed: number): string[] {
   return samples;
 }
 
+globalThis.gc?.();
+const heapBefore = process.memoryUsage().heapUsed;
 const records = Array.from({ length: RECORD_COUNT }, (_, index) =>
   createRecord(index),
 );
@@ -127,9 +130,14 @@ const sortedDurations = samples
 const percentileIndex = Math.ceil(sortedDurations.length * 0.95) - 1;
 const p95 = sortedDurations[percentileIndex];
 const max = sortedDurations[sortedDurations.length - 1];
+globalThis.gc?.();
+const retainedHeapMb = Math.max(
+  0,
+  (process.memoryUsage().heapUsed - heapBefore) / 1024 / 1024,
+);
 
 console.log(
-  `search benchmark: records=${RECORD_COUNT}, warmup=${warmupQueries.length}, samples=${samples.length}, p95=${p95.toFixed(3)}ms, max=${max.toFixed(3)}ms`,
+  `search benchmark: records=${RECORD_COUNT}, warmup=${warmupQueries.length}, samples=${samples.length}, p95=${p95.toFixed(3)}ms, max=${max.toFixed(3)}ms, retainedHeap=${retainedHeapMb.toFixed(1)}MB`,
 );
 
 if (!Number.isFinite(p95) || p95 <= 0 || p95 >= MAX_P95_MS) {
@@ -140,6 +148,13 @@ if (!Number.isFinite(p95) || p95 <= 0 || p95 >= MAX_P95_MS) {
     .join(', ');
   console.error(
     `search benchmark failed: expected 0 < p95 < ${MAX_P95_MS}ms; slowest: ${slowest}`,
+  );
+  process.exitCode = 1;
+}
+
+if (!Number.isFinite(retainedHeapMb) || retainedHeapMb >= MAX_RETAINED_HEAP_MB) {
+  console.error(
+    `search benchmark failed: expected retained heap < ${MAX_RETAINED_HEAP_MB}MB`,
   );
   process.exitCode = 1;
 }

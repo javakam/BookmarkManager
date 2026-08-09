@@ -1,6 +1,6 @@
 {
   "name": "bookmark-manager-extension",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,9 @@
     "test:watch": "vitest --exclude \"tests/build/**\" --exclude \"tests/e2e/**\"",
     "pree2e": "npm run build",
     "e2e": "playwright test",
-    "bench:search": "tsx scripts/bench-search.ts"
+    "bench": "npm run bench:search && npm run bench:organize",
+    "bench:search": "node --expose-gc --import tsx scripts/bench-search.ts",
+    "bench:organize": "node --expose-gc --import tsx scripts/bench-organize.ts"
   },
   "dependencies": {
     "fuse.js": "7.4.2",

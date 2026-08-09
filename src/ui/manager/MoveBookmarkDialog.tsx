@@ -11,6 +11,7 @@ interface MoveBookmarkDialogProps {
   readonly folders: readonly BookmarkRecord[];
   readonly model: BookmarkViewModel;
   readonly preferredFolderId?: string;
+  readonly error?: string;
   readonly onCancel: () => void;
   readonly onPreview: (targetFolderId: string) => void;
 }
@@ -26,6 +27,7 @@ export function MoveBookmarkDialog({
   folders,
   model,
   preferredFolderId,
+  error,
   onCancel,
   onPreview,
 }: MoveBookmarkDialogProps) {
@@ -69,6 +71,11 @@ export function MoveBookmarkDialog({
             ))}
           </select>
         </label>
+        {error && (
+          <p className="dialog-error" role="alert">
+            {error}
+          </p>
+        )}
         <footer className="dialog-actions">
           <button className="ghost-button" onClick={onCancel} type="button">
             取消

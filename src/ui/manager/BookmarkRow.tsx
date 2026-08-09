@@ -138,12 +138,15 @@ export function BookmarkRow({
             aria-label={`进入文件夹 ${display.displayTitle}`}
             className="text-action"
             onClick={() => onEnterFolder(record.id)}
+            title={display.displayTitle}
             type="button"
           >
             {display.displayTitle}
           </button>
         ) : (
-          <span className="bookmark-row__title-text">{display.displayTitle}</span>
+          <span className="bookmark-row__title-text" title={display.displayTitle}>
+            {display.displayTitle}
+          </span>
         )}
         {display.isIconOnly && (
           <span className="bookmark-row__tag">仅图标显示</span>

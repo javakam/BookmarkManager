@@ -8,6 +8,7 @@ type BookmarkEditorMode = 'create-bookmark' | 'create-folder' | 'edit';
 interface BookmarkEditorDialogProps {
   readonly mode: BookmarkEditorMode;
   readonly record?: BookmarkRecord;
+  readonly error?: string;
   readonly onCancel: () => void;
   readonly onPreview: (input: { title: string; url?: string }) => void;
 }
@@ -25,6 +26,7 @@ function dialogTitle(mode: BookmarkEditorMode, record?: BookmarkRecord): string 
 export function BookmarkEditorDialog({
   mode,
   record,
+  error,
   onCancel,
   onPreview,
 }: BookmarkEditorDialogProps) {
@@ -75,6 +77,11 @@ export function BookmarkEditorDialog({
               value={url}
             />
           </label>
+        )}
+        {error && (
+          <p className="dialog-error" role="alert">
+            {error}
+          </p>
         )}
         <footer className="dialog-actions">
           <button className="ghost-button" onClick={onCancel} type="button">

@@ -37,6 +37,7 @@ describe('createBrowserManagerSettingsRepository', () => {
       null,
       'invalid',
       { showFolderCounts: 'false' },
+      { showFolderCounts: true, theme: 'neon' },
     ]) {
       const storage = new StorageAreaStub();
       storage.storedValue = storedValue;
@@ -53,6 +54,7 @@ describe('createBrowserManagerSettingsRepository', () => {
     const configuredStorage = new StorageAreaStub();
     configuredStorage.storedValue = {
       showFolderCounts: false,
+      theme: 'warm-red',
       unrelated: 'must not escape',
     };
 
@@ -61,21 +63,21 @@ describe('createBrowserManagerSettingsRepository', () => {
     ).resolves.toEqual({ showFolderCounts: true, theme: 'system' });
     await expect(
       createBrowserManagerSettingsRepository(configuredStorage).load(),
-    ).resolves.toEqual({ showFolderCounts: false, theme: 'system' });
+    ).resolves.toEqual({ showFolderCounts: false, theme: 'warm-red' });
   });
 
   it('saves the display preferences under one namespaced key', async () => {
     const storage = new StorageAreaStub();
     const repository = createBrowserManagerSettingsRepository(storage);
 
-    await repository.save({ showFolderCounts: false, theme: 'dark' });
+    await repository.save({ showFolderCounts: false, theme: 'warm-red-dark' });
 
     expect(storage.writes).toHaveLength(1);
     expect(Object.keys(storage.writes[0] ?? {})).toHaveLength(1);
     const [storageKey] = Object.keys(storage.writes[0] ?? {});
     expect(storageKey).toMatch(/bookmark-manager.+settings/i);
     expect(storage.writes[0]).toEqual({
-      [storageKey]: { showFolderCounts: false, theme: 'dark' },
+      [storageKey]: { showFolderCounts: false, theme: 'warm-red-dark' },
     });
   });
 

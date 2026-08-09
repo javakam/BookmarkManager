@@ -166,9 +166,9 @@ export function useBookmarks(
       return read;
     };
 
-    const forceRefresh = (): Promise<void> => {
+    const forceRefresh = async (): Promise<void> => {
       if (!isActive || isDisposed.current || isImporting.current) {
-        return Promise.resolve();
+        return;
       }
 
       clearRefreshTimer();
@@ -176,9 +176,17 @@ export function useBookmarks(
       const currentRead = inFlight.current;
       if (currentRead !== undefined) {
         forceAfterFlight.current = true;
-        return currentRead.then(() => inFlight.current);
+        await currentRead;
+        // The read's finally handler starts the forced trailing read. Wait one
+        // microtask so callers do not observe completion between the two reads.
+        await Promise.resolve();
+        const trailingRead = inFlight.current;
+        if (trailingRead !== undefined && trailingRead !== currentRead) {
+          await trailingRead;
+        }
+        return;
       }
-      return startRead();
+      await startRead();
     };
 
     const handleRepositoryChange = (

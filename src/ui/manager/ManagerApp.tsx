@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -90,6 +91,38 @@ type LocationReturnState =
       readonly scrollTop: number;
     };
 
+function operationResultSummary(execution: BookmarkOperationExecution): string {
+  const successfulCount = execution.results.filter(
+    (result) => result.status === 'success',
+  ).length;
+  const conflictCount = execution.results.filter(
+    (result) => result.status === 'conflict',
+  ).length;
+  const failureCount = execution.results.filter(
+    (result) => result.status === 'failure',
+  ).length;
+  if (conflictCount > 0 || failureCount > 0) {
+    return `已完成 ${successfulCount} 项，${conflictCount} 项冲突，${failureCount} 项失败`;
+  }
+
+  switch (execution.kind) {
+    case 'create-bookmark':
+      return '已新建书签';
+    case 'create-folder':
+      return '已新建文件夹';
+    case 'update':
+      return '已保存修改';
+    case 'move':
+      return successfulCount === 1 ? '已移动' : `已移动 ${successfulCount} 项`;
+    case 'reorder':
+      return '已调整文件夹顺序';
+    case 'delete':
+      return successfulCount === 1
+        ? '已永久删除'
+        : `已永久删除 ${successfulCount} 项`;
+  }
+}
+
 function createDefaultSettingsRepository(): ManagerSettingsRepository {
   let settings = { ...DEFAULT_MANAGER_SETTINGS };
   return {
@@ -139,6 +172,7 @@ export function ManagerApp({
   );
   const initialExpansionApplied = useRef(false);
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const [scopeMode, setScopeMode] = useState<SearchScopeMode>('all');
   const [organizeTab, setOrganizeTab] = useState<OrganizeTab>('duplicates');
   const [highlightedId, setHighlightedId] = useState<string>();
@@ -195,6 +229,7 @@ export function ManagerApp({
 
   const resolvedFolderId = model.resolveFolderId(activeFolderId);
   const normalizedQuery = query.trim();
+  const deferredNormalizedQuery = deferredQuery.trim();
   const scope = useMemo(
     () =>
       scopeMode === 'folder' && resolvedFolderId
@@ -207,8 +242,10 @@ export function ManagerApp({
   );
   const results = useMemo(
     () =>
-      normalizedQuery ? index.search(normalizedQuery, scope, 200) : [],
-    [index, normalizedQuery, scope],
+      deferredNormalizedQuery
+        ? index.search(deferredNormalizedQuery, scope, 200)
+        : [],
+    [deferredNormalizedQuery, index, scope],
   );
   const moveModel = useMemo(
     () =>
@@ -295,6 +332,9 @@ export function ManagerApp({
   }, []);
 
   const rememberOperationFocus = useCallback(() => {
+    setOpenError(undefined);
+    setOperationError(undefined);
+    setOperationResult(undefined);
     if (operationFocusOriginRef.current?.isConnected) {
       return;
     }
@@ -320,6 +360,8 @@ export function ManagerApp({
     (folderId: string) => {
       setActiveFolderId(folderId);
       setHighlightedId(undefined);
+      setOpenError(undefined);
+      setOperationError(undefined);
       clearLocationReturn();
       revealFolder(folderId);
     },
@@ -439,6 +481,8 @@ export function ManagerApp({
   const changeView = useCallback(
     (nextView: ManagerView) => {
       clearLocationReturn();
+      setOpenError(undefined);
+      setOperationError(undefined);
       if (nextView === 'organize') {
         setOrganizeTab('duplicates');
       }
@@ -485,6 +529,8 @@ export function ManagerApp({
   const openEditor = useCallback(
     (next: EditorState['mode'], value: string | BookmarkRecord) => {
       rememberOperationFocus();
+      setOpenError(undefined);
+      setOperationError(undefined);
       if (next === 'edit') {
         setEditorState({
           mode: 'edit',
@@ -505,6 +551,8 @@ export function ManagerApp({
   const startMove = useCallback(
     (record: BookmarkRecord) => {
       rememberOperationFocus();
+      setOpenError(undefined);
+      setOperationError(undefined);
       setMoveRecord(record);
       setMoveSourceIds(undefined);
       setMoveRecordsSnapshot(data.records);
@@ -515,6 +563,8 @@ export function ManagerApp({
   const startMoveSelection = useCallback(
     (ids: readonly string[]) => {
       rememberOperationFocus();
+      setOpenError(undefined);
+      setOperationError(undefined);
       setMoveRecord(undefined);
       setMoveSourceIds([...ids]);
       setMoveRecordsSnapshot(data.records);
@@ -572,15 +622,14 @@ export function ManagerApp({
         return;
       }
       try {
+        const records = moveRecordsSnapshot ?? data.records;
+        const plan = operationService.planMove(records, ids, {
+          parentId: targetFolderId,
+        });
         setMoveRecord(undefined);
         setMoveSourceIds(undefined);
-        const records = moveRecordsSnapshot ?? data.records;
         setMoveRecordsSnapshot(undefined);
-        setConfirmPlan(
-          operationService.planMove(records, ids, {
-            parentId: targetFolderId,
-          }),
-        );
+        setConfirmPlan(plan);
         setOperationError(undefined);
       } catch (error) {
         setOperationError(error instanceof Error ? error.message : String(error));
@@ -764,28 +813,6 @@ export function ManagerApp({
     selectedIds,
   ]);
 
-  const previewOrganizeDelete = useCallback(
-    (records: readonly BookmarkRecord[]) => {
-      if (data.isImporting) {
-        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
-        return;
-      }
-      try {
-        rememberOperationFocus();
-        setConfirmPlan(
-          operationService.planDelete(
-            data.records,
-            records.map(({ id }) => id),
-          ),
-        );
-        setOperationError(undefined);
-      } catch (error) {
-        setOperationError(error instanceof Error ? error.message : String(error));
-      }
-    },
-    [data.isImporting, data.records, operationService, rememberOperationFocus],
-  );
-
   const bookmarkCount = model.searchableRecords.filter(
     (record) => !record.isFolder,
   ).length;
@@ -834,13 +861,9 @@ export function ManagerApp({
           activeTab={organizeTab}
           analysis={organizeAnalysis.analysis}
           onDelete={previewDelete}
-          onDeleteSelection={previewOrganizeDelete}
           onEdit={(record) => openEditor('edit', record)}
           onLocateBookmark={locate}
           onLocateFolder={locateFolder}
-          onMoveSelection={(records) =>
-            startMoveSelection(records.map(({ id }) => id))
-          }
           onMove={startMove}
           onOpen={(record) => void handleOpen(record)}
           onTabChange={setOrganizeTab}
@@ -868,6 +891,7 @@ export function ManagerApp({
   } else if (normalizedQuery) {
     content = (
       <SearchResults
+        isPending={normalizedQuery !== deferredNormalizedQuery}
         onDelete={previewDelete}
         onEdit={(record) => openEditor('edit', record)}
         onEnterFolder={enterSearchFolder}
@@ -1036,8 +1060,22 @@ export function ManagerApp({
               <button onClick={() => void data.refresh()} type="button">重试</button>
             </div>
           )}
-          {openError && <div className="inline-error" role="alert">{openError}</div>}
-          {operationError && <div className="inline-error" role="alert">{operationError}</div>}
+          {openError && (
+            <div className="inline-error" role="alert">
+              <span>{openError}</span>
+              <button onClick={() => setOpenError(undefined)} type="button">
+                关闭
+              </button>
+            </div>
+          )}
+          {operationError && !hasOperationDialog && (
+            <div className="inline-error" role="alert">
+              <span>{operationError}</span>
+              <button onClick={() => setOperationError(undefined)} type="button">
+                关闭
+              </button>
+            </div>
+          )}
           {locationStatus && (
             <div className="location-status" role="status">
               <span>{locationStatus}</span>
@@ -1057,6 +1095,7 @@ export function ManagerApp({
       </div>
       {editorState && (
         <BookmarkEditorDialog
+          error={operationError}
           mode={editorState.mode}
           onCancel={clearOperationUi}
           onPreview={previewCreateOrEdit}
@@ -1065,6 +1104,7 @@ export function ManagerApp({
       )}
       {(moveRecord || moveSourceIds) && (
         <MoveBookmarkDialog
+          error={operationError}
           folders={writableMoveTargets}
           model={moveModel}
           preferredFolderId={preferredMoveTargetId}
@@ -1075,6 +1115,7 @@ export function ManagerApp({
       {confirmPlan && (
         <ConfirmOperationDialog
           disabled={isExecutingOperation || data.isImporting}
+          error={operationError}
           onCancel={clearOperationUi}
           onConfirm={() => void executeConfirmedPlan()}
           plan={confirmPlan}
@@ -1087,9 +1128,7 @@ export function ManagerApp({
           role={operationResult.results.some((result) => result.status !== 'success') ? 'alert' : 'status'}
         >
           <div className="operation-toast__summary">
-            {operationResult.results.every((result) => result.status === 'success')
-              ? operationResult.results[0]?.message ?? '操作成功'
-              : `已完成 ${operationResult.results.filter((result) => result.status === 'success').length} 项，${operationResult.results.filter((result) => result.status === 'conflict').length} 项冲突，${operationResult.results.filter((result) => result.status === 'failure').length} 项失败`}
+            {operationResultSummary(operationResult)}
           </div>
           {operationResult.results.some((result) => result.status !== 'success') && (
             <ul className="operation-toast__details">

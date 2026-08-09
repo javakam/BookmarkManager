@@ -32,4 +32,14 @@ describe('项目工具链', () => {
     expect(existsSync(resolve('playwright.config.ts'))).toBe(true);
     expect(existsSync(resolve('tests/e2e/bootstrap.spec.ts'))).toBe(true);
   });
+
+  it('提供搜索与整理性能和内存回归入口', () => {
+    expect(packageJson.scripts?.bench).toBe(
+      'npm run bench:search && npm run bench:organize',
+    );
+    expect(packageJson.scripts?.['bench:search']).toContain('--expose-gc');
+    expect(packageJson.scripts?.['bench:organize']).toContain('--expose-gc');
+    expect(existsSync(resolve('scripts/bench-search.ts'))).toBe(true);
+    expect(existsSync(resolve('scripts/bench-organize.ts'))).toBe(true);
+  });
 });
