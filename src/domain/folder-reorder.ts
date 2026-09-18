@@ -1,17 +1,18 @@
 import type { BookmarkRecord } from './bookmarks';
 
-export type FolderDropPosition = 'before' | 'after';
+export type BookmarkDropPosition = 'before' | 'after';
+export type FolderDropPosition = BookmarkDropPosition;
 
 export interface FolderMoveDestination {
   readonly parentId: string;
   readonly index: number;
 }
 
-export function calculateFolderMove(
+export function calculateBookmarkMove(
   siblings: readonly BookmarkRecord[],
   sourceId: string,
   anchorId: string,
-  position: FolderDropPosition,
+  position: BookmarkDropPosition,
 ): FolderMoveDestination | undefined {
   if (sourceId === anchorId) {
     return undefined;
@@ -24,8 +25,8 @@ export function calculateFolderMove(
   const anchor = orderedSiblings.find((record) => record.id === anchorId);
 
   if (
-    !source?.isFolder ||
-    !anchor?.isFolder ||
+    !source ||
+    !anchor ||
     source.parentId === undefined ||
     source.parentId !== anchor.parentId
   ) {
@@ -38,8 +39,31 @@ export function calculateFolderMove(
     return undefined;
   }
 
+  const sourceIndex = orderedSiblings.findIndex((record) => record.id === source.id);
+  const finalIndex = position === 'before' ? anchorIndex : anchorIndex + 1;
+  if (finalIndex === sourceIndex) {
+    return undefined;
+  }
+
   return {
     parentId: source.parentId,
-    index: position === 'before' ? anchorIndex : anchorIndex + 1,
+    // The browser bookmarks API calculates same-parent moves against the
+    // pre-move sibling list, so a downward move needs one extra index.
+    index: sourceIndex < finalIndex ? finalIndex + 1 : finalIndex,
   };
+}
+
+export function calculateFolderMove(
+  siblings: readonly BookmarkRecord[],
+  sourceId: string,
+  anchorId: string,
+  position: FolderDropPosition,
+): FolderMoveDestination | undefined {
+  const source = siblings.find((record) => record.id === sourceId);
+  const anchor = siblings.find((record) => record.id === anchorId);
+  if (!source?.isFolder || !anchor?.isFolder) {
+    return undefined;
+  }
+
+  return calculateBookmarkMove(siblings, sourceId, anchorId, position);
 }

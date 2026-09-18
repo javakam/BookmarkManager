@@ -3,6 +3,7 @@ import {
   ExternalLink,
   Folder,
   Globe,
+  GripVertical,
   Lock,
   MoveRight,
   Pencil,
@@ -15,7 +16,19 @@ import {
 } from '../../app/bookmark-view-model';
 import { validateWritableRecord } from '../../domain/bookmark-operations';
 import type { BookmarkRecord } from '../../domain/bookmarks';
-import type { MouseEvent } from 'react';
+import type { DragEvent, MouseEvent } from 'react';
+import type { BookmarkDropPosition } from '../../domain/folder-reorder';
+
+export interface BookmarkDragState {
+  readonly sourceId: string;
+  readonly parentId: string;
+  readonly revision: number;
+}
+
+export interface BookmarkDropTarget {
+  readonly anchorId: string;
+  readonly position: BookmarkDropPosition;
+}
 
 interface BookmarkRowProps {
   readonly record: BookmarkRecord;
@@ -29,6 +42,17 @@ interface BookmarkRowProps {
   readonly onDelete?: (record: BookmarkRecord) => void;
   readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
   readonly onContextMenu?: (event: MouseEvent<HTMLElement>, record: BookmarkRecord) => void;
+  readonly reorderRevision?: number;
+  readonly draggedItem?: BookmarkDragState;
+  readonly dropTarget?: BookmarkDropTarget;
+  readonly onDraggedItemChange?: (next?: BookmarkDragState) => void;
+  readonly onDropTargetChange?: (next?: BookmarkDropTarget) => void;
+  readonly onReorder?: (
+    sourceId: string,
+    anchorId: string,
+    position: BookmarkDropPosition,
+    revision: number,
+  ) => void;
 }
 
 export function createFaviconUrl(url: string): string {
@@ -95,11 +119,81 @@ export function BookmarkRow({
   onDelete,
   onSelectionChange,
   onContextMenu,
+  reorderRevision,
+  draggedItem,
+  dropTarget,
+  onDraggedItemChange,
+  onDropTargetChange,
+  onReorder,
 }: BookmarkRowProps) {
   const display = getBookmarkDisplayInfo(record);
   const openLabel = bookmarkOpenLabel(display);
   const isWritable = validateWritableRecord(record).valid;
   const rowRef = useRef<HTMLLIElement>(null);
+  const canReorder =
+    isWritable &&
+    record.parentId !== undefined &&
+    reorderRevision !== undefined &&
+    onReorder !== undefined;
+  const dropPosition =
+    dropTarget?.anchorId === record.id ? dropTarget.position : undefined;
+
+  const getDropPosition = (event: DragEvent<HTMLElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return bounds.height > 0 && event.clientY < bounds.top + bounds.height / 2
+      ? 'before'
+      : 'after';
+  };
+
+  const startDrag = (event: DragEvent<HTMLLIElement>) => {
+    if (!canReorder || !record.parentId || reorderRevision === undefined) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest('button, input, a, textarea, select')
+    ) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(
+      'application/x-bookmark-item',
+      JSON.stringify({
+        sourceId: record.id,
+        parentId: record.parentId,
+        revision: reorderRevision,
+      }),
+    );
+    onDraggedItemChange?.({
+      sourceId: record.id,
+      parentId: record.parentId,
+      revision: reorderRevision,
+    });
+  };
+
+  const handleDrop = (event: DragEvent<HTMLLIElement>) => {
+    event.preventDefault();
+    const currentDropTarget = dropTarget;
+    onDropTargetChange?.(undefined);
+    onDraggedItemChange?.(undefined);
+    if (!canReorder || !currentDropTarget) {
+      return;
+    }
+    if (
+      draggedItem &&
+      draggedItem.sourceId !== record.id &&
+      draggedItem.parentId === record.parentId
+    ) {
+      onReorder?.(
+        draggedItem.sourceId,
+        record.id,
+        currentDropTarget.position,
+        draggedItem.revision,
+      );
+    }
+  };
 
   useEffect(() => {
     if (highlighted) {
@@ -109,11 +203,40 @@ export function BookmarkRow({
 
   return (
     <li
-      className={`bookmark-row${highlighted ? ' bookmark-row--highlighted' : ''}`}
+      className={`bookmark-row${highlighted ? ' bookmark-row--highlighted' : ''}${
+        canReorder ? ' bookmark-row--draggable' : ''
+      }${dropPosition ? ` bookmark-row--drop-${dropPosition}` : ''}`}
       data-bookmark-id={record.id}
       data-highlighted={highlighted ? 'true' : undefined}
+      draggable={canReorder}
+      onDragEnd={() => {
+        onDropTargetChange?.(undefined);
+        onDraggedItemChange?.(undefined);
+      }}
+      onDragOver={(event) => {
+        if (!canReorder) {
+          onDropTargetChange?.(undefined);
+          return;
+        }
+        event.preventDefault();
+        if (
+          draggedItem &&
+          draggedItem.sourceId !== record.id &&
+          draggedItem.parentId === record.parentId
+        ) {
+          onDropTargetChange?.({
+            anchorId: record.id,
+            position: getDropPosition(event),
+          });
+        } else {
+          onDropTargetChange?.(undefined);
+        }
+      }}
+      onDragStart={startDrag}
+      onDrop={handleDrop}
       onContextMenu={(event) => onContextMenu?.(event, record)}
       ref={rowRef}
+      title={canReorder ? `拖动调整 ${display.displayTitle} 顺序` : undefined}
     >
       <span className="bookmark-row__select">
         {selectable && (
@@ -131,6 +254,14 @@ export function BookmarkRow({
         ) : (
           <Favicon display={display} record={record} />
         )}
+      </span>
+      <span
+        aria-label={canReorder ? `拖动调整 ${display.displayTitle} 顺序` : undefined}
+        className="bookmark-row__drag-handle"
+        role={canReorder ? 'img' : undefined}
+        title={canReorder ? `拖动调整 ${display.displayTitle} 顺序` : undefined}
+      >
+        {canReorder && <GripVertical size={16} />}
       </span>
       <span className="bookmark-row__title">
         {record.isFolder ? (

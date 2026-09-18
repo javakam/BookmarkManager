@@ -30,7 +30,9 @@ import {
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import { isDangerousBookmarkUrl } from '../../domain/url-safety';
 import {
+  calculateBookmarkMove,
   calculateFolderMove,
+  type BookmarkDropPosition,
   type FolderDropPosition,
 } from '../../domain/folder-reorder';
 import {
@@ -68,6 +70,11 @@ type EditorState =
     }
   | {
       readonly mode: 'create-folder';
+      readonly parentId: string;
+      readonly records: readonly BookmarkRecord[];
+    }
+  | {
+      readonly mode: 'create-group';
       readonly parentId: string;
       readonly records: readonly BookmarkRecord[];
     }
@@ -590,10 +597,14 @@ export function ManagerApp({
             title: input.title,
             url: input.url ?? '',
           });
-        } else if (editorState.mode === 'create-folder') {
+        } else if (
+          editorState.mode === 'create-folder' ||
+          editorState.mode === 'create-group'
+        ) {
           plan = operationService.planCreateFolder(records, {
             parentId: editorState.parentId,
             title: input.title,
+            label: editorState.mode === 'create-group' ? '分组' : '文件夹',
           });
         } else {
           const changes: { title?: string; url?: string } = {};
@@ -706,6 +717,54 @@ export function ManagerApp({
     [
       data.isImporting,
       data.records,
+      model,
+      operationService,
+      rememberOperationFocus,
+    ],
+  );
+
+  const previewBookmarkReorder = useCallback(
+    (
+      sourceId: string,
+      anchorId: string,
+      position: BookmarkDropPosition,
+      dragRevision: number,
+    ) => {
+      if (data.isImporting) {
+        setOperationError('浏览器正在导入书签，请等待导入完成后再操作');
+        return;
+      }
+      if (dragRevision !== data.revision) {
+        setOperationError('拖动期间书签发生变化，请刷新后重试');
+        void data.refresh();
+        return;
+      }
+      const source = model.recordById.get(sourceId);
+      if (!source?.parentId) {
+        return;
+      }
+      const destination = calculateBookmarkMove(
+        model.childrenByParentId.get(source.parentId) ?? [],
+        sourceId,
+        anchorId,
+        position,
+      );
+      if (!destination) {
+        setOperationError('只能在同一层级调整顺序');
+        return;
+      }
+      try {
+        rememberOperationFocus();
+        setConfirmPlan(
+          operationService.planReorder(data.records, sourceId, destination),
+        );
+        setOperationError(undefined);
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [
+      data,
       model,
       operationService,
       rememberOperationFocus,
@@ -931,6 +990,9 @@ export function ManagerApp({
         onCreateFolder={(parentId) =>
           openEditor('create-folder', parentId)
         }
+        onCreateGroup={(parentId) =>
+          openEditor('create-group', parentId)
+        }
         onEdit={(record) => openEditor('edit', record)}
         onNavigate={navigate}
         onMove={startMove}
@@ -939,6 +1001,8 @@ export function ManagerApp({
         onDeleteSelection={previewBatchDelete}
         onMoveSelection={() => startMoveSelection([...selectedIds])}
         onSelectionChange={toggleSelection}
+        onReorder={data.isImporting ? undefined : previewBookmarkReorder}
+        reorderRevision={data.revision}
         selectedIds={selectedIds}
       />
     );

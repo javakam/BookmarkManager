@@ -13,6 +13,7 @@ type BuiltManifest = {
   action?: {
     default_icon?: Record<string, string>;
     default_title?: string;
+    default_popup?: string;
   };
 };
 
@@ -32,7 +33,10 @@ describe('Chrome MV3 构建产物', () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.name).toBe('书签工作台');
     expect(manifest.description).toBe('本地优先的浏览器原生书签管理器');
-    expect(manifest.version).toBe('1.0.6');
+    const packageManifest = JSON.parse(
+      readFileSync(resolve('package.json'), 'utf8'),
+    ) as { version?: string };
+    expect(manifest.version).toBe(packageManifest.version);
     expect(manifest.permissions).toEqual([
       'bookmarks',
       'storage',
@@ -51,6 +55,7 @@ describe('Chrome MV3 构建产物', () => {
       48: 'icon-48.png',
     });
     expect(manifest.action?.default_title).toBe('打开书签工作台');
+    expect(manifest.action).not.toHaveProperty('default_popup');
     for (const icon of Object.values(manifest.icons ?? {})) {
       expect(existsSync(resolve('.output/chrome-mv3', icon))).toBe(true);
     }
@@ -67,6 +72,9 @@ describe('Chrome MV3 构建产物', () => {
 
     expect(readFileSync(backgroundPath, 'utf8')).toContain(
       'onInstalled.addListener',
+    );
+    expect(readFileSync(backgroundPath, 'utf8')).toContain(
+      'onClicked.addListener',
     );
   });
 });

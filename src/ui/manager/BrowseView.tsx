@@ -8,7 +8,12 @@ import {
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import { validateWritableRecord } from '../../domain/bookmark-operations';
 import { BookmarkRow } from './BookmarkRow';
+import type {
+  BookmarkDragState,
+  BookmarkDropTarget,
+} from './BookmarkRow';
 import { useItemContextMenu } from './useItemContextMenu';
+import type { BookmarkDropPosition } from '../../domain/folder-reorder';
 
 const PAGE_SIZE = 100;
 const EMPTY_CHILDREN: readonly BookmarkRecord[] = [];
@@ -20,6 +25,7 @@ interface BrowseViewProps {
   readonly selectedIds?: ReadonlySet<string>;
   readonly onCreateBookmark?: (parentId: string) => void;
   readonly onCreateFolder?: (parentId: string) => void;
+  readonly onCreateGroup?: (parentId: string) => void;
   readonly onEdit?: (record: BookmarkRecord) => void;
   readonly onNavigate: (folderId: string) => void;
   readonly onMove?: (record: BookmarkRecord) => void;
@@ -28,6 +34,13 @@ interface BrowseViewProps {
   readonly onDelete?: (record: BookmarkRecord) => void;
   readonly onDeleteSelection?: () => void;
   readonly onSelectionChange?: (record: BookmarkRecord, selected: boolean) => void;
+  readonly onReorder?: (
+    sourceId: string,
+    anchorId: string,
+    position: BookmarkDropPosition,
+    revision: number,
+  ) => void;
+  readonly reorderRevision?: number;
 }
 
 export function BrowseView({
@@ -37,6 +50,7 @@ export function BrowseView({
   selectedIds,
   onCreateBookmark,
   onCreateFolder,
+  onCreateGroup,
   onEdit,
   onNavigate,
   onMove,
@@ -45,9 +59,13 @@ export function BrowseView({
   onDelete,
   onDeleteSelection,
   onSelectionChange,
+  onReorder,
+  reorderRevision,
 }: BrowseViewProps) {
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [contextRecord, setContextRecord] = useState<BookmarkRecord>();
+  const [draggedItem, setDraggedItem] = useState<BookmarkDragState>();
+  const [dropTarget, setDropTarget] = useState<BookmarkDropTarget>();
 
   const activeFolder = model.recordById.get(activeFolderId);
   const children = activeFolder
@@ -57,6 +75,11 @@ export function BrowseView({
   useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
   }, [activeFolderId]);
+
+  useEffect(() => {
+    setDraggedItem(undefined);
+    setDropTarget(undefined);
+  }, [activeFolderId, reorderRevision]);
 
   useEffect(() => {
     if (!highlightedId) {
@@ -152,7 +175,7 @@ export function BrowseView({
               <span>批量操作</span>
               <div aria-label="文件夹批量操作" className="folder-batch-tools" role="toolbar">
                 <button className="folder-batch-tools__danger" disabled={selectedCount === 0} onClick={onDeleteSelection} type="button">删除所选</button>
-                <button disabled={selectedCount === 0} onClick={onMoveSelection} type="button">移动所选</button>
+                <button disabled={selectedCount === 0} onClick={onMoveSelection} title="移入分组" type="button">移动所选</button>
               </div>
             </div>
             <div className="content-create-tools">
@@ -161,6 +184,9 @@ export function BrowseView({
               </button>
               <button className="command-button" onClick={() => onCreateFolder?.(activeFolderId)} type="button">
                 <FolderPlus aria-hidden="true" size={15} />新建文件夹
+              </button>
+              <button className="command-button command-button--secondary" onClick={() => onCreateGroup?.(activeFolderId)} type="button">
+                <FolderPlus aria-hidden="true" size={15} />新建分组
               </button>
             </div>
           </div>
@@ -180,11 +206,17 @@ export function BrowseView({
                 onDelete={onDelete}
                 onContextMenu={(event, nextRecord) => { setContextRecord(nextRecord); context.onContextMenu(event); }}
                 onSelectionChange={onSelectionChange}
+                onDraggedItemChange={setDraggedItem}
+                onDropTargetChange={setDropTarget}
+                onReorder={onReorder}
                 record={record}
+                reorderRevision={reorderRevision}
                 selectable={
                   validateWritableRecord(record).valid
                 }
                 selected={selectedIds?.has(record.id) ?? false}
+                draggedItem={draggedItem}
+                dropTarget={dropTarget}
               />
             ))}
           </ul>

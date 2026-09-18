@@ -3,7 +3,11 @@ import { useState } from 'react';
 import type { BookmarkRecord } from '../../domain/bookmarks';
 import { trapDialogFocus } from './dialog-focus';
 
-type BookmarkEditorMode = 'create-bookmark' | 'create-folder' | 'edit';
+type BookmarkEditorMode =
+  | 'create-bookmark'
+  | 'create-folder'
+  | 'create-group'
+  | 'edit';
 
 interface BookmarkEditorDialogProps {
   readonly mode: BookmarkEditorMode;
@@ -19,6 +23,9 @@ function dialogTitle(mode: BookmarkEditorMode, record?: BookmarkRecord): string 
   }
   if (mode === 'create-folder') {
     return '新建文件夹';
+  }
+  if (mode === 'create-group') {
+    return '新建分组';
   }
   return record?.isFolder ? '编辑文件夹' : '编辑书签';
 }
@@ -61,7 +68,13 @@ export function BookmarkEditorDialog({
           <h2 id="bookmark-editor-title">{heading}</h2>
         </header>
         <label className="field">
-          <span>{mode === 'create-folder' || record?.isFolder ? '名称' : '标题'}</span>
+          <span>
+            {mode === 'create-folder' || mode === 'create-group' || record?.isFolder
+              ? mode === 'create-group'
+                ? '分组名称'
+                : '名称'
+              : '标题'}
+          </span>
           <input
             autoFocus
             onChange={(event) => setTitle(event.target.value)}

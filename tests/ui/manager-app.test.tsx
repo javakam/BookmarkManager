@@ -294,12 +294,12 @@ describe('ManagerApp browse shell', () => {
       <ManagerApp
         openUrl={vi.fn()}
         repository={repository}
-        version="1.0.6"
+        version="1.0.7"
       />,
     );
 
     await screen.findByRole('heading', { name: '书签栏' });
-    expect(screen.getByText('v1.0.6')).toBeTruthy();
+    expect(screen.getByText('v1.0.7')).toBeTruthy();
   });
 
   it('shows loading, a read error, and a working retry action', async () => {
@@ -598,7 +598,7 @@ describe('ManagerApp browse shell', () => {
 
     expect(repository.move).toHaveBeenCalledWith('folder-a', {
       parentId: 'bar',
-      index: 2,
+      index: 3,
     });
     expect(
       within(sidebar)
@@ -606,6 +606,75 @@ describe('ManagerApp browse shell', () => {
         .closest('.folder-tree__row')
         ?.getAttribute('draggable'),
     ).toBe('false');
+  });
+
+  it('previews and executes same-level link ordering from the browse list', async () => {
+    const tree = managerTree();
+    const { repository } = await renderReady(tree);
+    const list = screen.getByRole('list', { name: '当前文件夹内容' });
+    const sourceRow = within(list).getByText('Zeta').closest('.bookmark-row') as HTMLElement;
+    const targetRow = within(list)
+      .getByRole('button', { name: '进入文件夹 Folder A' })
+      .closest('.bookmark-row') as HTMLElement;
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: 'none',
+      getData: (type: string) => data.get(type) ?? '',
+      setData: (type: string, value: string) => data.set(type, value),
+    };
+
+    expect(sourceRow.getAttribute('draggable')).toBe('true');
+    expect(
+      [...sourceRow.children].map((child) => child.className),
+    ).toEqual([
+      'bookmark-row__select',
+      'bookmark-row__icon',
+      'bookmark-row__drag-handle',
+      'bookmark-row__title',
+      'bookmark-row__kind',
+      'bookmark-row__url',
+      'bookmark-row__actions',
+    ]);
+    fireEvent.dragStart(sourceRow, { dataTransfer });
+    fireEvent.dragOver(targetRow, { clientY: 1, dataTransfer });
+    expect(targetRow.className).toMatch(/bookmark-row--drop-(before|after)/);
+    fireEvent.drop(targetRow, { clientY: 1, dataTransfer });
+
+    expect(await screen.findByText('将调整 1 个书签顺序')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认调整顺序' }));
+    await screen.findByRole('status', { name: '操作提示' });
+
+    expect(repository.move).toHaveBeenCalledWith('zeta', {
+      parentId: 'bar',
+      index: 3,
+    });
+  });
+
+  it('exposes native bookmark folders as explicit groups', async () => {
+    const { repository } = await renderReady();
+    vi.mocked(repository.createFolder).mockResolvedValue({
+      id: 'created-group',
+      parentId: 'bar',
+      index: 99,
+      title: '工作分组',
+      children: [],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '新建分组' }));
+    const editor = await screen.findByRole('dialog', { name: '新建分组' });
+    fireEvent.change(within(editor).getByRole('textbox'), {
+      target: { value: '工作分组' },
+    });
+    fireEvent.click(within(editor).getByRole('button', { name: '预览' }));
+
+    expect(await screen.findByRole('dialog', { name: '确认新建分组' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认新建分组' }));
+    await screen.findByRole('status', { name: '操作提示' });
+
+    expect(repository.createFolder).toHaveBeenCalledWith({
+      parentId: 'bar',
+      title: '工作分组',
+    });
   });
 
   it('rejects cross-level and system-folder drops with an explicit message', async () => {

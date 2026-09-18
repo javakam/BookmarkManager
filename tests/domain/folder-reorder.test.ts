@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { BookmarkRecord } from '../../src/domain/bookmarks';
-import { calculateFolderMove } from '../../src/domain/folder-reorder';
+import {
+  calculateBookmarkMove,
+  calculateFolderMove,
+} from '../../src/domain/folder-reorder';
 
 function folder(
   id: string,
@@ -47,7 +50,7 @@ describe('calculateFolderMove', () => {
     });
     expect(calculateFolderMove(siblings, 'folder-a', 'folder-c', 'after')).toEqual({
       parentId: 'parent',
-      index: 4,
+      index: 5,
     });
     expect(calculateFolderMove(siblings, 'folder-b', 'folder-a', 'before')).toEqual({
       parentId: 'parent',
@@ -65,5 +68,57 @@ describe('calculateFolderMove', () => {
     expect(calculateFolderMove(siblings, 'folder-a', 'folder-a', 'after')).toBeUndefined();
     expect(calculateFolderMove(siblings, 'folder-a', 'folder-b', 'after')).toBeUndefined();
     expect(calculateFolderMove(siblings, 'bookmark-x', 'folder-a', 'after')).toBeUndefined();
+  });
+});
+
+describe('calculateBookmarkMove', () => {
+  it('calculates link order with folders and links in one sibling list', () => {
+    const siblings = [
+      bookmark('bookmark-a', 0),
+      folder('folder-b', 1),
+      bookmark('bookmark-c', 2),
+    ];
+
+    expect(
+      calculateBookmarkMove(siblings, 'bookmark-c', 'bookmark-a', 'before'),
+    ).toEqual({
+      parentId: 'parent',
+      index: 0,
+    });
+    expect(
+      calculateBookmarkMove(siblings, 'bookmark-a', 'folder-b', 'after'),
+    ).toEqual({
+      parentId: 'parent',
+      index: 2,
+    });
+  });
+
+  it('rejects no-op and cross-parent drops for any node type', () => {
+    const siblings = [
+      bookmark('bookmark-a', 0),
+      folder('folder-b', 1, 'other-parent'),
+    ];
+
+    expect(
+      calculateBookmarkMove(siblings, 'bookmark-a', 'bookmark-a', 'after'),
+    ).toBeUndefined();
+    expect(
+      calculateBookmarkMove(siblings, 'bookmark-a', 'folder-b', 'after'),
+    ).toBeUndefined();
+  });
+
+  it('rejects drops that keep a node in its current position', () => {
+    const siblings = [
+      bookmark('bookmark-a', 0),
+      folder('folder-b', 1),
+      bookmark('bookmark-c', 2),
+    ];
+
+    expect(
+      calculateBookmarkMove(siblings, 'bookmark-a', 'folder-b', 'before'),
+    ).toBeUndefined();
+    expect(
+      calculateBookmarkMove(siblings, 'bookmark-c', 'folder-b', 'after'),
+    ).toBeUndefined();
   });
 });

@@ -10,12 +10,16 @@ interface IsolatedExtension {
   readonly folderId: string;
   readonly folderTitle: string;
   readonly longUrl: string;
+  readonly rootTitle: string;
 }
 
 async function launchIsolatedExtension(): Promise<IsolatedExtension> {
   const extensionPath = resolve('.output/chrome-mv3');
   const profile = mkdtempSync(join(tmpdir(), 'bookmark-manager-e2e-'));
   const context = await chromium.launchPersistentContext(profile, {
+    ...(process.env.BOOKMARK_MANAGER_CHROME_PATH
+      ? { executablePath: process.env.BOOKMARK_MANAGER_CHROME_PATH }
+      : {}),
     headless: false,
     args: [
       `--disable-extensions-except=${extensionPath}`,
@@ -32,7 +36,7 @@ async function launchIsolatedExtension(): Promise<IsolatedExtension> {
   }
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
-  const folderTitle = `v1.0.6 E2E ${Date.now()}`;
+  const folderTitle = `v1.0.7 E2E ${Date.now()}`;
   const longUrl =
     'https://native.example.test/a/very/long/path/that/must/remain/visible?alpha=123456789&beta=中文参数#section-with-a-long-fragment';
   // Bookmark APIs are only exposed to extension contexts. Create test data in
@@ -68,8 +72,20 @@ async function launchIsolatedExtension(): Promise<IsolatedExtension> {
     return { folderId: folder.id as string, longUrl: bookmark.url ?? longUrl };
   }, { folderTitle, longUrl });
   await page.goto(`chrome-extension://${extensionId}/manager.html`);
-  await expect(page.getByRole('heading', { name: '书签栏' })).toBeVisible();
-  return { context, page, profile, folderId: created.folderId, folderTitle, longUrl: created.longUrl };
+  const rootHeading = page.getByRole('heading', {
+    name: /^(书签栏|收藏夹栏)$/,
+  });
+  await expect(rootHeading).toBeVisible();
+  const rootTitle = (await rootHeading.textContent())?.trim() ?? '书签栏';
+  return {
+    context,
+    page,
+    profile,
+    folderId: created.folderId,
+    folderTitle,
+    longUrl: created.longUrl,
+    rootTitle,
+  };
 }
 
 async function removeIsolatedFolder(page: Page, folderId: string) {
@@ -95,28 +111,15 @@ async function setPageZoom(page: Page, zoomFactor: number) {
 }
 
 test.describe('真实 Chromium 扩展回归', () => {
-  test('重复打开弹窗时复用已有工作台页签', async () => {
+  test('扩展管理器入口直接打开工作台', async () => {
     const isolated = await launchIsolatedExtension();
-    const managerLocation = new URL(isolated.page.url());
-    const extensionOrigin = `${managerLocation.protocol}//${managerLocation.host}`;
-    const managerUrl = isolated.page.url();
     try {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const popup = await isolated.context.newPage();
-        await popup.goto(`${extensionOrigin}/popup.html`);
-        await popup.getByRole('button', { name: '打开书签工作台' }).click();
-        await expect
-          .poll(
-            () =>
-              isolated.context
-                .pages()
-                .filter((page) => page.url() === managerUrl).length,
-          )
-          .toBe(1);
-        if (!popup.isClosed()) {
-          await popup.close();
-        }
-      }
+      expect(isolated.page.url()).toContain('/manager.html');
+      await expect(
+        isolated.page.getByRole('heading', {
+          name: /^(书签栏|收藏夹栏)$/,
+        }),
+      ).toBeVisible();
     } finally {
       await removeIsolatedFolder(isolated.page, isolated.folderId);
       await isolated.context.close();
@@ -124,59 +127,34 @@ test.describe('真实 Chromium 扩展回归', () => {
     }
   });
 
-  test('已有工作台位于其他窗口时会聚焦其所属窗口', async () => {
+  test('管理器页签可在其他窗口中正常加载', async () => {
     const isolated = await launchIsolatedExtension();
-    const managerLocation = new URL(isolated.page.url());
-    const popupUrl = `${managerLocation.protocol}//${managerLocation.host}/popup.html`;
-    let popupWindowId: number | undefined;
+    const managerUrl = isolated.page.url();
+    let managerWindowId: number | undefined;
     try {
-      const popupPagePromise = isolated.context.waitForEvent('page');
-      popupWindowId = await isolated.page.evaluate(async (url) => {
+      const managerPagePromise = isolated.context.waitForEvent('page');
+      managerWindowId = await isolated.page.evaluate(async (url) => {
         const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
         const createdWindow = await api.windows.create({ url, focused: true });
         return createdWindow.id as number;
-      }, popupUrl);
-      const popup = await popupPagePromise;
-      await popup.waitForURL(popupUrl);
-      await expect
-        .poll(() =>
-          isolated.page.evaluate(async () => {
-            const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
-            const tab = await api.tabs.getCurrent();
-            return (await api.windows.get(tab.windowId)).focused as boolean;
-          }),
-        )
-        .toBe(false);
-
-      await popup.getByRole('button', { name: '打开书签工作台' }).click();
-
-      await expect
-        .poll(() =>
-          isolated.page.evaluate(async () => {
-            const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
-            const tab = await api.tabs.getCurrent();
-            return (await api.windows.get(tab.windowId)).focused as boolean;
-          }),
-        )
-        .toBe(true);
-      await expect
-        .poll(
-          () =>
-            isolated.context
-              .pages()
-              .filter((page) => page.url() === isolated.page.url()).length,
-        )
-        .toBe(1);
+      }, managerUrl);
+      const managerPage = await managerPagePromise;
+      await managerPage.waitForURL(managerUrl);
+      await expect(
+        managerPage.getByRole('heading', {
+          name: /^(书签栏|收藏夹栏)$/,
+        }),
+      ).toBeVisible();
     } finally {
-      if (popupWindowId !== undefined) {
+      if (managerWindowId !== undefined) {
         await isolated.page.evaluate(async (windowId) => {
           const api = (globalThis as typeof globalThis & { chrome: any }).chrome;
           try {
             await api.windows.remove(windowId);
           } catch {
-            // The popup closes its one-tab window after the command succeeds.
+            // The browser context may already have closed the temporary window.
           }
-        }, popupWindowId);
+        }, managerWindowId);
       }
       await removeIsolatedFolder(isolated.page, isolated.folderId);
       await isolated.context.close();
@@ -196,10 +174,12 @@ test.describe('真实 Chromium 扩展回归', () => {
 
     try {
       await expect(
-        isolated.page.getByText('v1.0.6', { exact: true }),
+        isolated.page.getByText('v1.0.7', { exact: true }),
       ).toBeVisible();
       await expect(
-        isolated.page.getByRole('button', { name: '折叠 书签栏' }),
+        isolated.page.getByRole('button', {
+          name: `折叠 ${isolated.rootTitle}`,
+        }),
       ).toHaveAttribute('aria-expanded', 'true');
 
       await isolated.page
@@ -262,7 +242,9 @@ test.describe('真实 Chromium 扩展回归', () => {
       await expect(search).toHaveValue('外部新增书签');
 
       await isolated.page.getByRole('button', { name: '清空搜索' }).click();
-      await isolated.page.getByRole('button', { name: '返回 书签栏' }).click();
+      await isolated.page
+        .getByRole('button', { name: `返回 ${isolated.rootTitle}` })
+        .click();
       await isolated.page.getByRole('button', { name: `删除 ${isolated.folderTitle}` }).click();
       await expect(isolated.page.getByRole('dialog', { name: '确认删除' })).toBeVisible();
       await expect(isolated.page.getByText('删除后无法恢复')).toBeVisible();

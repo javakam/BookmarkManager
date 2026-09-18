@@ -1,13 +1,15 @@
 {
   "name": "bookmark-manager-extension",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "type": "module",
   "scripts": {
     "postinstall": "wxt prepare",
     "dev": "wxt",
     "build": "wxt build",
+    "build:edge": "wxt build --browser edge",
     "zip": "wxt zip",
+    "zip:edge": "wxt zip --browser edge",
     "pretest": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run --exclude \"tests/build/**\" --exclude \"tests/e2e/**\"",

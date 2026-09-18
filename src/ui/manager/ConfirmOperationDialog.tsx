@@ -14,13 +14,16 @@ function operationSummary(plan: BookmarkOperationPlan): string {
     case 'create-bookmark':
       return '将新建 1 个书签';
     case 'create-folder':
-      return '将新建 1 个文件夹';
+      return `将新建 1 个${plan.label}`;
     case 'update':
       return '将更新 1 项';
     case 'move':
       return `将移动 ${plan.sources.length} 项`;
     case 'reorder':
-      return '将调整 1 个文件夹顺序';
+      if (plan.sources.length !== 1) {
+        return `将调整 ${plan.sources.length} 项顺序`;
+      }
+      return `将调整 1 个${plan.sources[0]?.isFolder ? '文件夹' : '书签'}顺序`;
     case 'delete':
       if (plan.affectedCount === plan.sources.length) {
         return `将永久删除 ${plan.affectedCount} 项`;
@@ -37,7 +40,10 @@ function operationCopy(plan: BookmarkOperationPlan): {
     case 'create-bookmark':
       return { title: '确认新建书签', confirmLabel: '确认新建书签' };
     case 'create-folder':
-      return { title: '确认新建文件夹', confirmLabel: '确认新建文件夹' };
+      return {
+        title: `确认新建${plan.label}`,
+        confirmLabel: `确认新建${plan.label}`,
+      };
     case 'update':
       return { title: '确认保存修改', confirmLabel: '确认保存' };
     case 'move':

@@ -32,6 +32,7 @@ type CreateFolderPlan = PlanBase & {
   readonly kind: 'create-folder';
   readonly parent: BookmarkFingerprint;
   readonly title: string;
+  readonly label: '文件夹' | '分组';
   readonly index?: number;
 };
 
@@ -81,6 +82,7 @@ export interface BookmarkOperationService {
     input: {
       readonly parentId: string;
       readonly title: string;
+      readonly label?: '文件夹' | '分组';
       readonly index?: number;
     },
   ): CreateFolderPlan;
@@ -451,6 +453,7 @@ export function createBookmarkOperationService({
         kind: 'create-folder',
         parent,
         title: input.title,
+        label: input.label ?? '文件夹',
         index: input.index,
       };
     },
