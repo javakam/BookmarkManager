@@ -36,7 +36,7 @@ async function launchIsolatedExtension(): Promise<IsolatedExtension> {
   }
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
-  const folderTitle = `v1.0.7 E2E ${Date.now()}`;
+  const folderTitle = `v1.0.8 E2E ${Date.now()}`;
   const longUrl =
     'https://native.example.test/a/very/long/path/that/must/remain/visible?alpha=123456789&beta=中文参数#section-with-a-long-fragment';
   // Bookmark APIs are only exposed to extension contexts. Create test data in
@@ -174,7 +174,7 @@ test.describe('真实 Chromium 扩展回归', () => {
 
     try {
       await expect(
-        isolated.page.getByText('v1.0.7', { exact: true }),
+        isolated.page.getByText('v1.0.8', { exact: true }),
       ).toBeVisible();
       await expect(
         isolated.page.getByRole('button', {

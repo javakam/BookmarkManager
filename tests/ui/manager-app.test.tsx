@@ -294,12 +294,12 @@ describe('ManagerApp browse shell', () => {
       <ManagerApp
         openUrl={vi.fn()}
         repository={repository}
-        version="1.0.7"
+        version="1.0.8"
       />,
     );
 
     await screen.findByRole('heading', { name: '书签栏' });
-    expect(screen.getByText('v1.0.7')).toBeTruthy();
+    expect(screen.getByText('v1.0.8')).toBeTruthy();
   });
 
   it('shows loading, a read error, and a working retry action', async () => {

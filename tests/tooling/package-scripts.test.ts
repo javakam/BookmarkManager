@@ -33,6 +33,17 @@ describe('项目工具链', () => {
     expect(existsSync(resolve('tests/e2e/bootstrap.spec.ts'))).toBe(true);
   });
 
+  it('提供 Chrome CRX 发布入口并保留发布脚本', () => {
+    expect(packageJson.scripts?.['pack:crx']).toBe(
+      'node scripts/pack-crx.mjs',
+    );
+    expect(existsSync(resolve('scripts/pack-crx.mjs'))).toBe(true);
+    expect(packageJson.scripts?.['release:artifacts']).toBe(
+      'node scripts/release-artifacts.mjs',
+    );
+    expect(existsSync(resolve('scripts/release-artifacts.mjs'))).toBe(true);
+  });
+
   it('提供搜索与整理性能和内存回归入口', () => {
     expect(packageJson.scripts?.bench).toBe(
       'npm run bench:search && npm run bench:organize',

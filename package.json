@@ -1,6 +1,6 @@
 {
   "name": "bookmark-manager-extension",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,8 @@
     "build:edge": "wxt build --browser edge",
     "zip": "wxt zip",
     "zip:edge": "wxt zip --browser edge",
+    "pack:crx": "node scripts/pack-crx.mjs",
+    "release:artifacts": "node scripts/release-artifacts.mjs",
     "pretest": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run --exclude \"tests/build/**\" --exclude \"tests/e2e/**\"",
